@@ -307,7 +307,7 @@ function App() {
             </div>
           </div>
         </div>
-
+        </>
       ) : (
         /* ═══════ TELEGRAM-STYLE CHAT VIEW ═══════ */
         <div className="flex-1 flex flex-col relative w-full h-full bg-[#09090b]">
