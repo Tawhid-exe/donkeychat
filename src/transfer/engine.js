@@ -106,19 +106,34 @@ export class TransferEngine {
     });
 
     let readyReceived = false;
+    let rejected = false;
     const readyHandler = (msg) => {
       if (msg.type === 'file_ready' && msg.transferId === meta.transferId) {
         readyReceived = true;
       }
+      if (msg.type === 'file_rejected' && msg.transferId === meta.transferId) {
+        rejected = true;
+      }
     };
     this.conn.on('chat_message', readyHandler);
 
+    // Wait up to 60 seconds for receiver to accept (documents need user gesture)
     let waited = 0;
-    while (!readyReceived && waited < 2000) {
-      await new Promise(r => setTimeout(r, 100));
-      waited += 100;
+    while (!readyReceived && !rejected && waited < 60000) {
+      await new Promise(r => setTimeout(r, 200));
+      waited += 200;
     }
     this.conn.off('chat_message', readyHandler);
+
+    if (rejected) {
+      onError(new Error('Receiver declined the file transfer.'));
+      return;
+    }
+
+    if (!readyReceived) {
+      onError(new Error('Receiver did not respond in time. Transfer cancelled.'));
+      return;
+    }
 
     return this.sender.send(file);
   }

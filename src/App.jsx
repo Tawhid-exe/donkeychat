@@ -79,7 +79,7 @@ function App() {
         });
         return;
       }
-      if (msg.type === 'file_ready') return;
+      if (msg.type === 'file_ready' || msg.type === 'file_rejected') return;
       if (msg.type === 'file_incoming') {
         handleIncomingFile(msg.meta);
         globalMessageStore.addMessage(createFileMessage(msg.meta, connectedPeer));
@@ -424,6 +424,46 @@ function App() {
                 const isFirst = !prevMsg || prevMsg.senderId !== msg.senderId || prevMsg.type === 'system';
                 const isLast = !nextMsg || nextMsg.senderId !== msg.senderId || nextMsg.type === 'system';
 
+                const isMediaMsg = msg.type === 'file' && msg.blobUrl;
+                const isDeclined = msg.type === 'file' && msg.declined;
+
+                if (isDeclined) return null; // hide declined file messages
+
+                // ── MEDIA MESSAGE (image/video) — borderless messenger style ──
+                if (isMediaMsg) {
+                  return (
+                    <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirst ? 'mt-2' : 'mt-[2px]'}`}>
+                      <div className="relative max-w-[75%] md:max-w-[55%] overflow-hidden rounded-2xl">
+                        {msg.meta?.mimeType?.startsWith('video/') ? (
+                          <video
+                            src={msg.blobUrl}
+                            controls
+                            playsInline
+                            preload="metadata"
+                            className="w-full block rounded-2xl"
+                            style={{ maxHeight: '360px' }}
+                          />
+                        ) : (
+                          <img
+                            src={msg.blobUrl}
+                            alt={msg.meta?.fileName || 'image'}
+                            className="w-full block rounded-2xl"
+                            style={{ maxHeight: '360px', objectFit: 'cover' }}
+                          />
+                        )}
+                        {/* Timestamp overlay on media */}
+                        <div className="absolute bottom-1.5 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5">
+                          <span className="text-[10px] text-white/90">
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {isMe && <span className="text-[10px] text-white/90">✓✓</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // ── TEXT / FILE-TRANSFER BUBBLE ──
                 return (
                   <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirst ? 'mt-2' : 'mt-[2px]'}`}>
                     <div
@@ -434,21 +474,13 @@ function App() {
                       }`}
                     >
                       {msg.type === 'file' ? (
-                        <div className={`w-56 md:w-64 ${msg.blobUrl ? 'w-auto max-w-full' : ''}`}>
-                          {msg.blobUrl ? (
-                            msg.meta?.mimeType?.startsWith('video/') ? (
-                              <video src={msg.blobUrl} controls className="w-full rounded-lg shadow-sm" />
-                            ) : (
-                              <img src={msg.blobUrl} alt={msg.meta?.fileName} className="w-full rounded-lg shadow-sm" />
-                            )
-                          ) : (
-                            <FileTransfer
-                              meta={msg.meta}
-                              status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
-                              onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
-                              onDecline={msg.meta?.transferId ? () => declineTransfer(msg.meta.transferId) : undefined}
-                            />
-                          )}
+                        <div className="w-56 md:w-64">
+                          <FileTransfer
+                            meta={msg.meta}
+                            status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
+                            onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
+                            onDecline={msg.meta?.transferId ? () => declineTransfer(msg.meta.transferId) : undefined}
+                          />
                         </div>
                       ) : (
                         <p className="text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words">{msg.text}</p>
