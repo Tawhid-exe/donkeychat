@@ -11,7 +11,7 @@ function sleep(ms) {
 }
 
 export class Sender {
-  constructor(dataChannels, onProgress, onComplete, onError) {
+  constructor(dataChannels, onProgress, onComplete, onError, transferId) {
     this.channels = dataChannels;
     this.onProgress = onProgress;
     this.onComplete = onComplete;
@@ -24,7 +24,7 @@ export class Sender {
     );
 
     this.cancelled = false;
-    this.transferId = crypto.randomUUID();
+    this.transferId = transferId || crypto.randomUUID();
 
     // UPDATE 3: Throttle progress at sender
     this._lastProgressEmit = 0;

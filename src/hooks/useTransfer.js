@@ -98,7 +98,7 @@ export function useTransfer(transferEngine, activeConnection) {
   }, [activeTransfers]);
 
   // Handle outgoing files
-  const sendFile = useCallback(async (file, remotePeerId) => {
+  const sendFile = useCallback(async (file, remotePeerId, transferId) => {
     if (!transferEngine) {
       activityLog.log('error', 'Send failed', 'No transfer engine — not connected');
       return;
@@ -108,13 +108,14 @@ export function useTransfer(transferEngine, activeConnection) {
 
     setActiveTransfers(prev => [...prev, {
       type: 'send',
-      meta: { fileName: file.name, fileSize: file.size },
+      meta: { fileName: file.name, fileSize: file.size, transferId },
       status: 'active'
     }]);
 
     await transferEngine.sendFile(
       file,
       remotePeerId,
+      transferId,
       (bytes, total, seq, totalChunks) => {
         // UI updates via direct DOM
       },
@@ -141,5 +142,15 @@ export function useTransfer(transferEngine, activeConnection) {
     return () => activeConnection.off('chunk_received', chunkHandler);
   }, [activeConnection]);
 
-  return { activeTransfers, sendFile, handleIncomingFile, acceptTransfer };
+  const declineTransfer = useCallback((transferId) => {
+    setActiveTransfers(prev => prev.filter(t => t.meta.transferId !== transferId));
+    receiversRef.current.delete(transferId);
+    activityLog.log('info', 'Transfer declined', '');
+    // Optionally we can send a decline signal to sender, but sender might just timeout or we can send file_rejected
+    if (activeConnection) {
+      activeConnection.sendChat({ type: 'file_rejected', transferId });
+    }
+  }, [activeConnection]);
+
+  return { activeTransfers, sendFile, handleIncomingFile, acceptTransfer, declineTransfer };
 }

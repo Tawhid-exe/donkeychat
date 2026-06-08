@@ -29,7 +29,7 @@ function App() {
     getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, endChat
   } = usePeer(stableIdentity);
 
-  const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer } = useTransfer(transferEngine, activeConnection);
+  const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer, declineTransfer } = useTransfer(transferEngine, activeConnection);
 
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
@@ -184,12 +184,19 @@ function App() {
       } catch (e) { /* use original */ }
     }
 
+    const transferId = crypto.randomUUID();
+    const blobUrl = fileToSend.type.startsWith('image/') || fileToSend.type.startsWith('video/') 
+      ? URL.createObjectURL(fileToSend) 
+      : null;
+
     globalMessageStore.addMessage(createFileMessage({ 
       fileName: fileToSend.name, 
       fileSize: fileToSend.size,
-      mimeType: fileToSend.type 
-    }, stableIdentity?.peerId));
-    sendFile(fileToSend, connectedPeer);
+      mimeType: fileToSend.type,
+      transferId
+    }, stableIdentity?.peerId, blobUrl));
+
+    sendFile(fileToSend, connectedPeer, transferId);
   }, [connectedPeer, stableIdentity, sendFile]);
 
   const handleFileSelect = (e) => {
@@ -439,6 +446,7 @@ function App() {
                               meta={msg.meta}
                               status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
                               onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
+                              onDecline={msg.meta?.transferId ? () => declineTransfer(msg.meta.transferId) : undefined}
                             />
                           )}
                         </div>

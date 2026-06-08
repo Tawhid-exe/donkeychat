@@ -37,7 +37,7 @@ export class TransferEngine {
     }
   }
 
-  async sendFile(file, remotePeerId, onProgress, onComplete, onError) {
+  async sendFile(file, remotePeerId, transferId, onProgress, onComplete, onError) {
     // If tier not set yet (race condition on connect), wait up to 5s for it to be detected
     if (this.currentTier === null) {
       activityLog.log('info', 'Waiting for tier', 'Tier not yet detected, waiting...');
@@ -51,7 +51,7 @@ export class TransferEngine {
     // FIX #3: currentTier is now an integer, these comparisons work
     if (this.currentTier === TIER.LAN || this.currentTier === TIER.WAN || this.currentTier === TIER.TURN) {
       activityLog.log('info', 'File send started', `${file.name} (${(file.size / 1e6).toFixed(1)}MB) via ${TIER_NAMES[this.currentTier]}`);
-      return this._sendViaWebRTC(file, onProgress, onComplete, onError);
+      return this._sendViaWebRTC(file, transferId, onProgress, onComplete, onError);
     }
 
     // FIX #13: Tier 3 and 4 — proper error messaging instead of crashing
@@ -81,13 +81,14 @@ export class TransferEngine {
     }
   }
 
-  async _sendViaWebRTC(file, onProgress, onComplete, onError) {
+  async _sendViaWebRTC(file, transferId, onProgress, onComplete, onError) {
     const { Sender } = await import('./sender');
     this.sender = new Sender(
       this.conn.transferChannels,
       onProgress,
       onComplete,
-      onError
+      onError,
+      transferId
     );
 
     const { meta } = await this.sender.prepareMeta(file);

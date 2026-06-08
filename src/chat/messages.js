@@ -66,12 +66,13 @@ export function createSystemMessage(text) {
   };
 }
 
-export function createFileMessage(meta, senderId) {
+export function createFileMessage(meta, senderId, blobUrl = null) {
   return {
     text: `File: ${meta.fileName}`,
     senderId,
     type: 'file',
-    meta
+    meta,
+    blobUrl
   };
 }
 

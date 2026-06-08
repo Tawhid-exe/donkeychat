@@ -2,7 +2,7 @@ import React from 'react';
 import { useTransferProgress } from '../hooks/useTransferProgress';
 import { formatFileSize } from '../chat/messages';
 
-export function FileTransfer({ meta, onCancel, onAccept, status }) {
+export function FileTransfer({ meta, onCancel, onAccept, onDecline, status }) {
   const { barRef, textRef } = useTransferProgress();
   const isPending = status === 'pending_accept';
 
@@ -23,12 +23,22 @@ export function FileTransfer({ meta, onCancel, onAccept, status }) {
       </div>
 
       {isPending && onAccept ? (
-        <button
-          onClick={onAccept}
-          className="w-full py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg text-[12px] font-semibold transition-colors"
-        >
-          Accept & Save
-        </button>
+        <div className="flex gap-2 w-full">
+          <button
+            onClick={onAccept}
+            className="flex-1 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-[12px] font-semibold transition-colors border border-emerald-500/20"
+          >
+            Accept
+          </button>
+          {onDecline && (
+            <button
+              onClick={onDecline}
+              className="flex-1 py-2 bg-[#ef4444]/20 hover:bg-[#ef4444]/30 text-[#ef4444] rounded-lg text-[12px] font-semibold transition-colors border border-[#ef4444]/20"
+            >
+              Decline
+            </button>
+          )}
+        </div>
       ) : (
         <div className="relative h-1 w-full bg-white/10 rounded-full overflow-hidden">
           <div
