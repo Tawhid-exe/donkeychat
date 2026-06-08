@@ -330,8 +330,10 @@ function App() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <ActivityLogPanel isChatMode={true} />
-              <button onClick={() => window.location.reload()} className="hidden md:block px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors">
+              <div className="hidden md:block">
+                <ActivityLogPanel isChatMode={true} />
+              </div>
+              <button onClick={() => window.location.reload()} className="px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors">
                 End
               </button>
             </div>

@@ -173,15 +173,7 @@ export function usePeer(identity) {
     const id = identityRef.current;
     if (!id) return;
 
-    // Use lobby signaling (both peers are already in it)
-    let sig = lobbySignalingRef.current;
-
-    // If we have a room, use the room signaling instead
-    if (roomSignalingRef.current) {
-      sig = roomSignalingRef.current;
-    }
-
-    if (!sig) {
+    if (!lobbySignalingRef.current && !roomSignalingRef.current) {
       activityLog.log('error', 'No signaling', 'Not connected to any channel');
       return;
     }
@@ -189,10 +181,10 @@ export function usePeer(identity) {
     activityLog.log('info', 'Sending request', `To peer: ${remotePeerId.slice(0, 8)}...`);
     setPendingRequest(remotePeerId);
     
-    sig.signal(remotePeerId, {
-      type: 'chat_request',
-      displayName: id.displayName
-    });
+    // Send on all available channels to ensure delivery
+    const payload = { type: 'chat_request', displayName: id.displayName };
+    if (roomSignalingRef.current) roomSignalingRef.current.signal(remotePeerId, payload);
+    if (lobbySignalingRef.current) lobbySignalingRef.current.signal(remotePeerId, payload);
   }, []);
 
   const _startInitiatorConnection = useCallback(async (sig, remotePeerId) => {
@@ -239,20 +231,29 @@ export function usePeer(identity) {
 
   const acceptRequest = useCallback(() => {
     if (!incomingRequest) return;
-    const sig = roomSignalingRef.current || lobbySignalingRef.current;
-    if (sig) {
-      sig.signal(incomingRequest.from, { type: 'chat_accept' });
-      _handleIncomingConnection(sig, incomingRequest.from);
+    const payload = { type: 'chat_accept' };
+    
+    let activeSig = null;
+    if (roomSignalingRef.current) {
+      roomSignalingRef.current.signal(incomingRequest.from, payload);
+      activeSig = roomSignalingRef.current;
+    }
+    if (lobbySignalingRef.current) {
+      lobbySignalingRef.current.signal(incomingRequest.from, payload);
+      activeSig = activeSig || lobbySignalingRef.current;
+    }
+    
+    if (activeSig) {
+      _handleIncomingConnection(activeSig, incomingRequest.from);
     }
     setIncomingRequest(null);
   }, [incomingRequest, _handleIncomingConnection]);
 
   const rejectRequest = useCallback(() => {
     if (!incomingRequest) return;
-    const sig = roomSignalingRef.current || lobbySignalingRef.current;
-    if (sig) {
-      sig.signal(incomingRequest.from, { type: 'chat_reject' });
-    }
+    const payload = { type: 'chat_reject' };
+    if (roomSignalingRef.current) roomSignalingRef.current.signal(incomingRequest.from, payload);
+    if (lobbySignalingRef.current) lobbySignalingRef.current.signal(incomingRequest.from, payload);
     setIncomingRequest(null);
   }, [incomingRequest]);
 
