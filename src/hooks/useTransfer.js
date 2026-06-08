@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Receiver } from '../transfer/receiver';
 import { activityLog } from '../utils/activityLog';
 import { globalMessageStore } from '../chat/messages';
@@ -56,6 +56,8 @@ export function useTransfer(transferEngine, activeConnection) {
       // Can use OPFS/blob — auto-init
       try {
         await receiver.init();
+        // Send ACK back so sender knows we are ready
+        activeConnection.sendChat({ type: 'file_ready', transferId: meta.transferId });
       } catch (err) {
         activityLog.log('error', 'Receiver init failed', err.message);
         return;
@@ -68,21 +70,6 @@ export function useTransfer(transferEngine, activeConnection) {
         status: 'active'
       }]);
     }
-
-    // FIX #8: Route chunks to the correct receiver by parsing transferId
-    // We set up a single chunk handler that routes to the right receiver
-    if (!activeConnection._chunkRouterInstalled) {
-      activeConnection.on('chunk_received', (data, channelIndex) => {
-        // Route to the most recent receiver (simple approach)
-        // In a full implementation, we'd parse the chunk header for transferId
-        const receivers = Array.from(receiversRef.current.values());
-        const lastReceiver = receivers[receivers.length - 1];
-        if (lastReceiver) {
-          lastReceiver.receiveChunk(data);
-        }
-      });
-      activeConnection._chunkRouterInstalled = true;
-    }
   }, [activeConnection]);
 
   // Accept a pending file transfer (provides user gesture for FSA)
@@ -94,6 +81,9 @@ export function useTransfer(transferEngine, activeConnection) {
 
     try {
       await transfer.receiver.init();
+      // Send ACK back so sender knows we are ready
+      activeConnection.sendChat({ type: 'file_ready', transferId });
+      
       setActiveTransfers(prev =>
         prev.map(t =>
           t.meta.transferId === transferId
@@ -136,6 +126,20 @@ export function useTransfer(transferEngine, activeConnection) {
       }
     );
   }, [transferEngine]);
+
+  // Early install of chunk router
+  useEffect(() => {
+    if (!activeConnection) return;
+    const chunkHandler = (data) => {
+      const receivers = Array.from(receiversRef.current.values());
+      const lastReceiver = receivers[receivers.length - 1];
+      if (lastReceiver) {
+        lastReceiver.receiveChunk(data);
+      }
+    };
+    activeConnection.on('chunk_received', chunkHandler);
+    return () => activeConnection.off('chunk_received', chunkHandler);
+  }, [activeConnection]);
 
   return { activeTransfers, sendFile, handleIncomingFile, acceptTransfer };
 }

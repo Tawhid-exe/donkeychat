@@ -104,6 +104,21 @@ export class TransferEngine {
       }
     });
 
+    let readyReceived = false;
+    const readyHandler = (msg) => {
+      if (msg.type === 'file_ready' && msg.transferId === meta.transferId) {
+        readyReceived = true;
+      }
+    };
+    this.conn.on('chat_message', readyHandler);
+
+    let waited = 0;
+    while (!readyReceived && waited < 2000) {
+      await new Promise(r => setTimeout(r, 100));
+      waited += 100;
+    }
+    this.conn.off('chat_message', readyHandler);
+
     return this.sender.send(file);
   }
 }

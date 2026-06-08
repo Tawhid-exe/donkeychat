@@ -77,7 +77,13 @@ export class Sender {
     // Concatenate all chunks for hashing (but in controlled batches)
     // For files under 100MB, hash directly
     if (file.size < 100 * 1024 * 1024) {
-      const buffer = await file.arrayBuffer();
+      const bufferSize = chunks.reduce((acc, val) => acc + val.byteLength, 0);
+      const buffer = new Uint8Array(bufferSize);
+      let offset = 0;
+      for (const chunk of chunks) {
+        buffer.set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength), offset);
+        offset += chunk.byteLength;
+      }
       const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
       return Array.from(new Uint8Array(hashBuffer))
         .map(b => b.toString(16).padStart(2, '0'))
@@ -110,7 +116,7 @@ export class Sender {
       let seq = 0;
       let bytesSent = 0;
       const rawKey = this.meta.rawKey;
-      const shouldCompress = this._shouldCompress(file.type);
+      const shouldCompress = false; // Compression disabled — no decompress on receiver side
 
       while (true) {
         if (this.cancelled) break;

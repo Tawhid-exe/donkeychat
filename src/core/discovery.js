@@ -49,9 +49,9 @@ export function generateRoomCode() {
   return code;
 }
 
-export function generateShareUrl(roomCode) {
+export function generateShareUrl(roomCode, myPeerId) {
   const base = window.location.origin + window.location.pathname;
-  return `${base}?room=${roomCode}`;
+  return `${base}?room=${roomCode}${myPeerId ? `&peer=${myPeerId}` : ''}`;
 }
 
 export function getRoomCodeFromUrl() {

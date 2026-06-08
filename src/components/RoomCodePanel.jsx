@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { generateShareUrl } from '../core/discovery';
 import { QRModal } from './QRModal';
 
-export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
+export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPeer, myPeerId }) {
   const [joinExpanded, setJoinExpanded] = useState(false);
   const [joinInput, setJoinInput] = useState('');
   const [showCopied, setShowCopied] = useState(false);
@@ -57,7 +57,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
             </svg>
           </button>
         </div>
-        <QRModal isOpen={qrMode !== null} onClose={() => setQrMode(null)} mode={qrMode} roomCode={roomCode} />
+        <QRModal isOpen={qrMode !== null} onClose={() => setQrMode(null)} mode={qrMode} roomCode={roomCode} myPeerId={myPeerId} />
       </div>
     );
   }
@@ -65,23 +65,25 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
   // ── Landing: 2 buttons → expand join panel ──
   return (
     <div className="flex flex-col gap-3">
-      {/* Create Room */}
-      <button
-        onClick={onCreateRoom}
-        className="w-full py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98]"
-      >
-        Create Secure Room
-      </button>
-
-      {/* Join Room — expands on click */}
-      {!joinExpanded ? (
+      <div className="flex gap-3">
+        {/* Create Room */}
         <button
-          onClick={() => setJoinExpanded(true)}
-          className="w-full py-3.5 bg-transparent border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] rounded-xl text-[15px] font-semibold transition-colors"
+          onClick={onCreateRoom}
+          className="flex-1 py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98]"
+        >
+          Create Secure Room
+        </button>
+
+        {/* Join Room */}
+        <button
+          onClick={() => setJoinExpanded(!joinExpanded)}
+          className={`flex-1 py-3.5 bg-transparent border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] rounded-xl text-[15px] font-semibold transition-colors ${joinExpanded ? 'bg-[#27272a]' : ''}`}
         >
           Join Room
         </button>
-      ) : (
+      </div>
+
+      {joinExpanded && (
         <div className="flex flex-col gap-2 animate-[fadeIn_0.15s_ease]">
           <label className="text-[12px] font-semibold text-[#a1a1aa] uppercase tracking-[0.5px]">Enter Room Passcode</label>
           <div className="flex gap-2">
@@ -105,18 +107,12 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
           <div className="flex gap-2">
             <button
               onClick={() => setQrMode('scan')}
-              className="flex-1 py-2.5 bg-transparent border border-[#3f3f46] text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#fafafa] rounded-xl text-[13px] font-semibold transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-transparent border border-[#3f3f46] text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#fafafa] rounded-xl text-[13px] font-semibold transition-colors flex items-center justify-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
               </svg>
               Scan QR
-            </button>
-            <button
-              onClick={() => { setJoinExpanded(false); setJoinInput(''); }}
-              className="px-4 py-2.5 bg-transparent border border-[#3f3f46] text-[#71717a] hover:bg-[#27272a] rounded-xl text-[13px] transition-colors"
-            >
-              Cancel
             </button>
           </div>
         </div>
@@ -127,9 +123,13 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
         onClose={() => setQrMode(null)}
         mode={qrMode}
         roomCode={roomCode}
-        onScan={(code) => {
+        myPeerId={myPeerId}
+        onScan={(code, peer) => {
           onJoinRoom(code);
           setJoinInput('');
+          if (peer && connectToPeer) {
+            setTimeout(() => connectToPeer(peer), 1500);
+          }
         }}
       />
     </div>

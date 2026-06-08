@@ -79,6 +79,7 @@ function App() {
         });
         return;
       }
+      if (msg.type === 'file_ready') return;
       if (msg.type === 'file_incoming') {
         handleIncomingFile(msg.meta);
         globalMessageStore.addMessage(createFileMessage(msg.meta, connectedPeer));
@@ -311,13 +312,19 @@ function App() {
               </div>
 
               {/* Room Controls */}
-              <RoomCodePanel roomCode={roomCode} onCreateRoom={createRoom} onJoinRoom={joinRoom} />
+              <RoomCodePanel
+                roomCode={roomCode}
+                onCreateRoom={createRoom}
+                onJoinRoom={joinRoom}
+                connectToPeer={connectToPeer}
+                myPeerId={stableIdentity?.peerId}
+              />
 
               {/* Peer list — only shown when peers found */}
               {lanPeers.length > 0 && (
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#a1a1aa] uppercase tracking-wider">Nearby Devices</span>
+                    <span className="text-[11px] font-bold text-[#a1a1aa] uppercase tracking-wider">Online Peers</span>
                     <span className="text-emerald-400 text-xs font-mono">{lanPeers.length}</span>
                   </div>
                   {lanPeers.map(peer => (

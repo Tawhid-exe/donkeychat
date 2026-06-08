@@ -1,14 +1,40 @@
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  ...(import.meta.env.VITE_TURN_URL && import.meta.env.VITE_TURN_URL !== 'turn:placeholder'
-    ? [{
-        urls: import.meta.env.VITE_TURN_URL,
-        username: import.meta.env.VITE_TURN_USER || '',
-        credential: import.meta.env.VITE_TURN_PASS || ''
-      }]
-    : [])
-];
+let cachedIceServers = null;
+
+async function getIceServers() {
+  if (cachedIceServers) return cachedIceServers;
+
+  let servers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ];
+
+  const apiKey = import.meta.env.VITE_METERED_API_KEY;
+  if (apiKey) {
+    try {
+      const response = await fetch(`https://donkeychat.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
+      if (response.ok) {
+        const meteredServers = await response.json();
+        servers = [...servers, ...meteredServers];
+        cachedIceServers = servers;
+        return servers;
+      }
+    } catch (e) {
+      console.error("Failed to fetch TURN credentials", e);
+    }
+  }
+
+  // Fallback to static env vars if present
+  if (import.meta.env.VITE_TURN_URL && import.meta.env.VITE_TURN_URL !== 'turn:placeholder') {
+    servers.push({
+      urls: import.meta.env.VITE_TURN_URL,
+      username: import.meta.env.VITE_TURN_USER || '',
+      credential: import.meta.env.VITE_TURN_PASS || ''
+    });
+  }
+
+  cachedIceServers = servers;
+  return servers;
+}
 
 const NUM_TRANSFER_CHANNELS = 4;
 const CHAT_CHANNEL_LABEL = 'blaze-chat';
@@ -26,8 +52,6 @@ export class BlazeConnection {
     // FIX #8: Support multiple handlers per event via array
     this.handlers = {};
 
-    this.expectedTier = 'wan';
-    this.lanTimeout = null;
     this.wanTimeout = null;
   }
 
@@ -58,7 +82,8 @@ export class BlazeConnection {
   }
 
   async init() {
-    this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const iceServers = await getIceServers();
+    this.pc = new RTCPeerConnection({ iceServers });
 
     this.pc.onicecandidate = ({ candidate }) => {
       if (!candidate) return;
@@ -73,7 +98,6 @@ export class BlazeConnection {
       const state = this.pc.connectionState;
 
       if (state === 'connected') {
-        clearTimeout(this.lanTimeout);
         clearTimeout(this.wanTimeout);
         await this._detectTier();  // Now properly awaited
         this._emit('connected', this.connectionTier);
@@ -94,27 +118,11 @@ export class BlazeConnection {
       }
     };
 
-    // UPDATE 4: AP Isolation Fast Failover
-    if (this.expectedTier === 'lan') {
-      this.lanTimeout = setTimeout(() => {
-        if (this.pc.connectionState !== 'connected') {
-          console.info('LAN ICE failed (AP Isolation likely) — promoting to WAN/TURN');
-          this._emit('lan_failed');
-
-          this.wanTimeout = setTimeout(() => {
-            if (this.pc.connectionState !== 'connected') {
-              this._emit('ice_timeout');
-            }
-          }, 10000);
-        }
-      }, 3000);
-    } else {
-      this.wanTimeout = setTimeout(() => {
-        if (this.pc.connectionState !== 'connected') {
-          this._emit('ice_timeout');
-        }
-      }, 10000);
-    }
+    this.wanTimeout = setTimeout(() => {
+      if (this.pc.connectionState !== 'connected') {
+        this._emit('ice_timeout');
+      }
+    }, 10000);
 
     if (this.isInitiator) {
       this._createChannels();
