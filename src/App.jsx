@@ -26,7 +26,7 @@ function App() {
   const {
     lanPeers, connectToPeer, activeConnection, connectedPeer,
     connectionTier, transferEngine, roomCode, createRoom, joinRoom,
-    getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest
+    getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, endChat
   } = usePeer(stableIdentity);
 
   const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer } = useTransfer(transferEngine, activeConnection);
@@ -69,6 +69,16 @@ function App() {
     if (!activeConnection) return;
 
     const chatHandler = (msg) => {
+      if (msg.type === 'peer_left') {
+        globalMessageStore.addMessage({
+          id: crypto.randomUUID(),
+          text: 'The other user ended the chat. Redirecting...',
+          type: 'system',
+          senderId: 'system',
+          timestamp: Date.now()
+        });
+        return;
+      }
       if (msg.type === 'file_incoming') {
         handleIncomingFile(msg.meta);
         globalMessageStore.addMessage(createFileMessage(msg.meta, connectedPeer));
@@ -340,7 +350,8 @@ function App() {
         </div>
       ) : (
         /* ═══════ TELEGRAM-STYLE CHAT VIEW ═══════ */
-        <div className="flex-1 flex flex-col relative w-full h-full bg-[#09090b] md:max-w-3xl md:mx-auto md:border-x md:border-[#3f3f46]">
+        <div className="flex-1 flex flex-col items-center justify-center py-3 px-2 md:py-4">
+          <div className="flex flex-col w-full h-full max-h-full md:max-w-2xl md:mx-auto md:rounded-2xl md:border md:border-[#27272a] md:overflow-hidden md:shadow-[0_0_40px_rgba(0,0,0,0.6)] bg-[#09090b]">
           {/* Spacer for global ActivityLog on mobile */}
           <div className="md:hidden w-full h-14 flex-shrink-0 bg-[#09090b]"></div>
           
@@ -362,7 +373,7 @@ function App() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => window.location.reload()} className="px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors">
+              <button onClick={endChat} className="px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#ef4444] hover:border-[#ef4444]/50 transition-colors">
                 End
               </button>
             </div>
@@ -507,6 +518,7 @@ function App() {
             </div>
           </div>
         </div>
+      </div>
       )}
     </div>
   );

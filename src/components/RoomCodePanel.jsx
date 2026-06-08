@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { generateRoomCode, generateShareUrl } from '../core/discovery';
+import React, { useState } from 'react';
+import { generateShareUrl } from '../core/discovery';
 import { QRModal } from './QRModal';
 
 export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
+  const [joinExpanded, setJoinExpanded] = useState(false);
   const [joinInput, setJoinInput] = useState('');
   const [showCopied, setShowCopied] = useState(false);
   const [qrMode, setQrMode] = useState(null); // 'share' | 'scan' | null
@@ -34,9 +35,10 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
     }
   };
 
+  // ── Room code display (after creating a room) ──
   if (roomCode) {
     return (
-      <div className="mb-2 p-4 bg-[#18181b] rounded-xl border border-[#3f3f46]">
+      <div className="p-4 bg-[#18181b] rounded-xl border border-[#3f3f46]">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[12px] uppercase tracking-[0.5px] text-[#a1a1aa] font-bold">Room Code</span>
           <button onClick={handleCopy} className="text-[12px] font-bold text-[#ef4444] hover:text-[#dc2626] transition-colors">
@@ -45,7 +47,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
         </div>
         <div className="flex items-center justify-between">
           <p className="text-2xl font-mono font-bold text-[#ef4444] tracking-[0.4em] drop-shadow-[0_0_10px_rgba(239,68,68,0.3)]">{roomCode}</p>
-          <button 
+          <button
             onClick={() => setQrMode('share')}
             className="p-2 bg-[#ef4444]/10 text-[#ef4444] rounded-lg hover:bg-[#ef4444]/20 transition-colors"
             title="Show QR Code"
@@ -60,54 +62,70 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
     );
   }
 
+  // ── Landing: 2 buttons → expand join panel ──
   return (
-    <div className="flex flex-col gap-4">
-      {/* Create Room Button */}
-      <div className="flex gap-3">
-        <button
-          onClick={onCreateRoom}
-          className="flex-1 py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98]"
-        >
-          Create Secure Room
-        </button>
-      </div>
+    <div className="flex flex-col gap-3">
+      {/* Create Room */}
+      <button
+        onClick={onCreateRoom}
+        className="w-full py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98]"
+      >
+        Create Secure Room
+      </button>
 
-      {/* Join Room Section */}
-      <div className="flex flex-col gap-2 mt-2">
-        <label className="text-[12px] font-semibold text-[#a1a1aa] uppercase tracking-[0.5px]">Enter Room Passcode</label>
-        <div className="flex gap-3">
-          <input
-            value={joinInput}
-            onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-            placeholder="000000"
-            className="flex-1 min-w-0 bg-[#09090b] text-[#fafafa] rounded-xl px-4 py-3.5 border border-[#3f3f46] focus:outline-none focus:border-[#ef4444] focus:ring-1 focus:ring-[#ef4444]/50 font-mono tracking-[0.4em] text-center text-lg placeholder:tracking-normal placeholder:text-center"
-            maxLength={8}
-          />
-          <button
-            onClick={handleJoin}
-            className="px-6 py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98] flex-shrink-0"
-          >
-            Connect
-          </button>
+      {/* Join Room — expands on click */}
+      {!joinExpanded ? (
+        <button
+          onClick={() => setJoinExpanded(true)}
+          className="w-full py-3.5 bg-transparent border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] rounded-xl text-[15px] font-semibold transition-colors"
+        >
+          Join Room
+        </button>
+      ) : (
+        <div className="flex flex-col gap-2 animate-[fadeIn_0.15s_ease]">
+          <label className="text-[12px] font-semibold text-[#a1a1aa] uppercase tracking-[0.5px]">Enter Room Passcode</label>
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              value={joinInput}
+              onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+              placeholder="000000"
+              className="flex-1 min-w-0 bg-[#09090b] text-[#fafafa] rounded-xl px-4 py-3 border border-[#3f3f46] focus:outline-none focus:border-[#ef4444] focus:ring-1 focus:ring-[#ef4444]/50 font-mono tracking-[0.4em] text-center text-lg placeholder:tracking-normal placeholder:text-center"
+              maxLength={8}
+            />
+            <button
+              onClick={handleJoin}
+              className="px-5 py-3 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98] flex-shrink-0"
+            >
+              Connect
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setQrMode('scan')}
+              className="flex-1 py-2.5 bg-transparent border border-[#3f3f46] text-[#a1a1aa] hover:bg-[#27272a] hover:text-[#fafafa] rounded-xl text-[13px] font-semibold transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+              Scan QR
+            </button>
+            <button
+              onClick={() => { setJoinExpanded(false); setJoinInput(''); }}
+              className="px-4 py-2.5 bg-transparent border border-[#3f3f46] text-[#71717a] hover:bg-[#27272a] rounded-xl text-[13px] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-        
-        <button
-          onClick={() => setQrMode('scan')}
-          className="w-full py-3 mt-1 bg-transparent border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] rounded-xl text-[14px] font-semibold transition-colors flex items-center justify-center gap-2"
-        >
-          <svg className="w-5 h-5 text-[#a1a1aa]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-          </svg>
-          Scan QR Code
-        </button>
-      </div>
+      )}
 
-      {/* QR Modal */}
-      <QRModal 
-        isOpen={qrMode !== null} 
-        onClose={() => setQrMode(null)} 
-        mode={qrMode} 
+      <QRModal
+        isOpen={qrMode !== null}
+        onClose={() => setQrMode(null)}
+        mode={qrMode}
         roomCode={roomCode}
         onScan={(code) => {
           onJoinRoom(code);

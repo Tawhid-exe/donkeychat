@@ -38,6 +38,16 @@ export class TransferEngine {
   }
 
   async sendFile(file, remotePeerId, onProgress, onComplete, onError) {
+    // If tier not set yet (race condition on connect), wait up to 5s for it to be detected
+    if (this.currentTier === null) {
+      activityLog.log('info', 'Waiting for tier', 'Tier not yet detected, waiting...');
+      let waited = 0;
+      while (this.currentTier === null && waited < 5000) {
+        await new Promise(r => setTimeout(r, 200));
+        waited += 200;
+      }
+    }
+
     // FIX #3: currentTier is now an integer, these comparisons work
     if (this.currentTier === TIER.LAN || this.currentTier === TIER.WAN || this.currentTier === TIER.TURN) {
       activityLog.log('info', 'File send started', `${file.name} (${(file.size / 1e6).toFixed(1)}MB) via ${TIER_NAMES[this.currentTier]}`);

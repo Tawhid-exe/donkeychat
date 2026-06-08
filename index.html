@@ -5,9 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DonkeyChat</title>
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#f97316" />
+    <meta name="theme-color" content="#ef4444" />
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- Auto-redirect from vercel.app to pages.dev (faster, no VPN needed) -->
+    <script>
+      (function() {
+        var host = window.location.hostname;
+        if (host.indexOf('vercel.app') !== -1) {
+          var pagesUrl = 'https://donkeychat.pages.dev' + window.location.pathname + window.location.search + window.location.hash;
+          // Try to load pages.dev; if it fails within 3s, stay on vercel
+          var redirectTimer = setTimeout(function() {
+            window.location.replace(pagesUrl);
+          }, 3000);
+          // If current page loads fine, clear the redirect
+          window.addEventListener('load', function() { clearTimeout(redirectTimer); });
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

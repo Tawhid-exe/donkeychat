@@ -6,6 +6,7 @@ import { activityLog } from '../utils/activityLog';
 export function usePeer(identity) {
   const [lanPeers, setLanPeers] = useState([]);
   const [activeConnection, setActiveConnection] = useState(null);
+  const activeConnectionRef = useRef(null);
   const [connectedPeer, setConnectedPeer] = useState(null);
   const [connectionTier, setConnectionTier] = useState(null);
   const [transferEngine, setTransferEngine] = useState(null);
@@ -96,11 +97,16 @@ export function usePeer(identity) {
   }, [identity?.peerId]);
 
   // ── Handle incoming P2P connection (responder side) ──
-  const _handleIncomingConnection = useCallback((sig, remotePeerId) => {
+  const _handleIncomingConnection = useCallback(async (sig, remotePeerId) => {
+    if (activeConnectionRef.current) return;
+    
+    activityLog.log('info', 'Incoming connection', `From ${remotePeerId}`);
+
     const id = identityRef.current;
     if (!id) return;
 
     const conn = new BlazeConnection(sig, id.peerId, remotePeerId, false);
+    activeConnectionRef.current = conn;
 
     const engine = new TransferEngine(conn, id);
 
@@ -117,9 +123,21 @@ export function usePeer(identity) {
 
     conn.on('failed', () => {
       activityLog.log('error', 'Connection failed', 'P2P connection dropped');
-      setActiveConnection(null);
-      setConnectedPeer(null);
-      setConnectionTier(null);
+      import('../chat/messages').then(({ globalMessageStore }) => {
+        globalMessageStore.addMessage({
+          id: crypto.randomUUID(),
+          text: 'The other user has left the chat. Redirecting...',
+          type: 'system',
+          senderId: 'system',
+          timestamp: Date.now()
+        });
+      });
+      setTimeout(() => {
+        activeConnectionRef.current = null;
+        setActiveConnection(null);
+        setConnectedPeer(null);
+        setConnectionTier(null);
+      }, 3000);
     });
 
     conn.init();
@@ -191,7 +209,10 @@ export function usePeer(identity) {
     const id = identityRef.current;
     if (!id) return;
 
+    if (activeConnectionRef.current) return;
+
     const conn = new BlazeConnection(sig, id.peerId, remotePeerId, true);
+    activeConnectionRef.current = conn;
     const engine = new TransferEngine(conn, id);
 
     conn.on('connected', (tier) => {
@@ -215,9 +236,21 @@ export function usePeer(identity) {
 
     conn.on('failed', () => {
       activityLog.log('error', 'Connection failed', 'P2P connection dropped');
-      setActiveConnection(null);
-      setConnectedPeer(null);
-      setConnectionTier(null);
+      import('../chat/messages').then(({ globalMessageStore }) => {
+        globalMessageStore.addMessage({
+          id: crypto.randomUUID(),
+          text: 'The other user has left the chat. Redirecting...',
+          type: 'system',
+          senderId: 'system',
+          timestamp: Date.now()
+        });
+      });
+      setTimeout(() => {
+        activeConnectionRef.current = null;
+        setActiveConnection(null);
+        setConnectedPeer(null);
+        setConnectionTier(null);
+      }, 3000);
     });
 
     await conn.init();
@@ -277,6 +310,39 @@ export function usePeer(identity) {
     return roomSignalingRef.current || lobbySignalingRef.current || null;
   }, []);
 
+  // ── End chat — send goodbye signal, show message, then disconnect ──
+  const endChat = useCallback(() => {
+    const conn = activeConnectionRef.current;
+    // Send a goodbye message over the data channel
+    if (conn?.chatChannel?.readyState === 'open') {
+      conn.sendChat({ type: 'peer_left', id: crypto.randomUUID(), timestamp: Date.now() });
+    }
+    // Also send via relay
+    const sig = roomSignalingRef.current || lobbySignalingRef.current;
+    const id = identityRef.current;
+    if (sig && id && connectedPeer) {
+      sig.signal(connectedPeer, { type: 'peer_left' });
+    }
+    // Show system message locally then clear
+    import('../chat/messages').then(({ globalMessageStore }) => {
+      globalMessageStore.addMessage({
+        id: crypto.randomUUID(),
+        text: 'You ended the chat.',
+        type: 'system',
+        senderId: 'system',
+        timestamp: Date.now()
+      });
+    });
+    setTimeout(() => {
+      if (conn) conn.close();
+      activeConnectionRef.current = null;
+      setActiveConnection(null);
+      setConnectedPeer(null);
+      setConnectionTier(null);
+      setTransferEngine(null);
+    }, 2000);
+  }, [connectedPeer]);
+
   return {
     lanPeers,
     connectToPeer,
@@ -291,6 +357,7 @@ export function usePeer(identity) {
     incomingRequest,
     pendingRequest,
     acceptRequest,
-    rejectRequest
+    rejectRequest,
+    endChat
   };
 }
