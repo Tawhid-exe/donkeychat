@@ -187,41 +187,30 @@ function App() {
 
               <RoomCodePanel roomCode={roomCode} onCreateRoom={createRoom} onJoinRoom={joinRoom} />
 
-              <div className="mt-2 text-left">
-                <h3 className="text-[14px] text-[#a1a1aa] mb-3 font-medium flex justify-between">
-                  Nearby Devices
-                  {supabaseReady && <span className="text-emerald-400 font-mono text-xs">{lanPeers.length}</span>}
-                </h3>
-                
-                <div className="flex flex-col gap-2">
-                  {!supabaseReady && (
-                    <div className="p-3 bg-[#27272a] border border-[#3f3f46] rounded-xl text-center">
-                      <p className="text-xs text-[#ef4444] font-medium">⚠️ Setup Required</p>
-                      <p className="text-[11px] text-[#a1a1aa] mt-1">Add Supabase to .env.local</p>
-                    </div>
-                  )}
-
-                  {supabaseReady && lanPeers.length === 0 && (
-                    <div className="p-6 text-center border border-[#3f3f46] border-dashed rounded-xl">
-                      <p className="text-[#a1a1aa] text-sm animate-pulse">Scanning network...</p>
-                    </div>
-                  )}
-
-                  {lanPeers.map(peer => (
-                    <button
-                      key={peer.id}
-                      onClick={() => connectToPeer(peer.id, !peer.isWan)}
-                      className="flex items-center gap-3 p-3 bg-[#18181b] border border-[#3f3f46] rounded-xl cursor-pointer transition-colors hover:border-[#ef4444] hover:bg-[#27272a] text-left w-full"
-                    >
-                      <div className="text-2xl">📱</div>
-                      <div className="flex-1">
-                        <div className="font-semibold text-sm">{peer.displayName}</div>
-                        <div className="text-[11px] text-[#a1a1aa]">{peer.os} • {peer.isWan ? 'WAN' : 'LAN'}</div>
-                      </div>
-                    </button>
-                  ))}
+              {lanPeers.length > 0 && (
+                <div className="mt-2 text-left animate-fadeIn">
+                  <h3 className="text-[14px] text-[#a1a1aa] mb-3 font-medium flex justify-between">
+                    Nearby Devices
+                    {supabaseReady && <span className="text-emerald-400 font-mono text-xs">{lanPeers.length}</span>}
+                  </h3>
+                  
+                  <div className="flex flex-col gap-2">
+                    {lanPeers.map(peer => (
+                      <button
+                        key={peer.id}
+                        onClick={() => connectToPeer(peer.id, !peer.isWan)}
+                        className="flex items-center gap-3 p-3 bg-[#18181b] border border-[#3f3f46] rounded-xl cursor-pointer transition-colors hover:border-[#ef4444] hover:bg-[#27272a] text-left w-full shadow-sm"
+                      >
+                        <div className="text-2xl">📱</div>
+                        <div className="flex-1">
+                          <div className="font-semibold text-[15px] text-[#fafafa]">{peer.displayName}</div>
+                          <div className="text-[12px] text-[#a1a1aa] mt-0.5">{peer.os} • {peer.isWan ? 'WAN' : 'LAN'}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="bg-[#ef4444]/5 border border-[#ef4444]/20 p-4 rounded-xl text-[13px] text-red-300/80 leading-[1.6]">
                 <span className="text-[#ef4444] font-bold">How it works:</span> Chat uses relay. Files transfer <strong className="text-red-300/90">directly P2P via WebRTC</strong>. If WebRTC fails, files fall back through relay. Room codes expire in <strong>10 minutes</strong>.

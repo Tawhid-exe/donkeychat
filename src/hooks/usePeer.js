@@ -33,26 +33,21 @@ export function usePeer(identity) {
       _joinRoom(urlRoom, identity);
     }
 
-    // Start LAN discovery
-    activityLog.log('info', 'LAN scan started', 'Probing subnet via ICE candidates...');
-    probeLanSubnet((lanRoomId, localIP, subnet) => {
-      lanRoomIdRef.current = lanRoomId;
-      activityLog.log('success', 'LAN subnet found', `${subnet}.x → Room: ${lanRoomId.slice(0, 12)}...`);
+    // Start global discovery lobby
+    activityLog.log('info', 'Discovery started', 'Joining global peer lobby...');
+    const sig = new SignalingChannel('global_lobby', identity.peerId);
+    lanSignalingRef.current = sig;
 
-      const sig = new SignalingChannel(lanRoomId, identity.peerId);
-      lanSignalingRef.current = sig;
+    sig.on('peers', (peers) => {
+      setLanPeers(peers);
+      // Update online count
+      activityLog.setOnlineCount(peers.length + 1); // +1 for self
+    });
 
-      sig.on('peers', (peers) => {
-        setLanPeers(peers);
-        // Update online count
-        activityLog.setOnlineCount(peers.length + 1); // +1 for self
-      });
-
-      sig.connect({
-        displayName: identity.displayName,
-        os: identity.os,
-        localIP
-      });
+    sig.connect({
+      displayName: identity.displayName,
+      os: identity.os,
+      localIP: 'global'
     });
 
     return () => {
