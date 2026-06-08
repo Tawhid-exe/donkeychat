@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { probeLanSubnet, SignalingChannel, BlazeConnection, getRoomCodeFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
+import { SignalingChannel, BlazeConnection, getRoomCodeFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
 import { TransferEngine, TIER } from '../transfer/engine';
 import { activityLog } from '../utils/activityLog';
 
@@ -11,12 +11,21 @@ export function usePeer(identity) {
   const [transferEngine, setTransferEngine] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
 
-  // FIX #1: Store the LAN room signaling channel for reuse
-  const lanSignalingRef = useRef(null);
-  const lanRoomIdRef = useRef(null);
+  // Refs to hold mutable state without triggering re-renders
+  const lobbySignalingRef = useRef(null);
+  const roomSignalingRef = useRef(null);
+  const identityRef = useRef(null);
+  const initedRef = useRef(false);
 
+  // Keep identityRef in sync
   useEffect(() => {
-    if (!identity?.peerId) return;
+    identityRef.current = identity;
+  }, [identity]);
+
+  // ── Discovery: join global lobby once ──
+  useEffect(() => {
+    if (!identity?.peerId || initedRef.current) return;
+    initedRef.current = true;
 
     activityLog.log('info', 'Identity ready', `${identity.displayName} (${identity.os})`);
 
@@ -25,78 +34,132 @@ export function usePeer(identity) {
       return;
     }
 
-    // Check URL for room code (WAN invite link)
+    // Join global lobby for presence / online count
+    const lobbySig = new SignalingChannel('global_lobby', identity.peerId);
+    lobbySignalingRef.current = lobbySig;
+
+    lobbySig.on('peers', (peers) => {
+      setLanPeers(prev => {
+        // Merge lobby peers, preserving any WAN-flagged peers from room joins
+        const wanIds = new Set(prev.filter(p => p.isWan).map(p => p.id));
+        const lobbyPeers = peers.filter(p => !wanIds.has(p.id));
+        const wanPeers = prev.filter(p => p.isWan);
+        return [...lobbyPeers, ...wanPeers];
+      });
+      activityLog.setOnlineCount(peers.length + 1);
+    });
+
+    // Listen for incoming WebRTC offers in the lobby
+    lobbySig.on('signal', async (payload) => {
+      if (payload.type === 'offer' && payload.from) {
+        activityLog.log('info', 'Incoming connection', `From: ${payload.from.slice(0, 8)}...`);
+        _handleIncomingConnection(lobbySig, payload.from);
+      }
+    });
+
+    lobbySig.connect({
+      displayName: identity.displayName,
+      os: identity.os
+    });
+
+    // Check URL for room code
     const urlRoom = getRoomCodeFromUrl();
     if (urlRoom) {
       setRoomCode(urlRoom);
       activityLog.log('info', 'Room code from URL', urlRoom);
-      _joinRoom(urlRoom, identity);
+      _joinRoom(urlRoom);
     }
 
-    // Start global discovery lobby
-    activityLog.log('info', 'Discovery started', 'Joining global peer lobby...');
-    const sig = new SignalingChannel('global_lobby', identity.peerId);
-    lanSignalingRef.current = sig;
-
-    sig.on('peers', (peers) => {
-      setLanPeers(peers);
-      // Update online count
-      activityLog.setOnlineCount(peers.length + 1); // +1 for self
-    });
-
-    sig.connect({
-      displayName: identity.displayName,
-      os: identity.os,
-      localIP: 'global'
-    });
-
     return () => {
-      lanSignalingRef.current?.disconnect();
+      lobbySignalingRef.current?.disconnect();
+      roomSignalingRef.current?.disconnect();
+      initedRef.current = false;
     };
   }, [identity?.peerId]);
 
-  // Join a specific room (for WAN connections via room code)
-  const _joinRoom = useCallback(async (code, id) => {
+  // ── Handle incoming P2P connection (responder side) ──
+  const _handleIncomingConnection = useCallback((sig, remotePeerId) => {
+    const id = identityRef.current;
+    if (!id) return;
+
+    const conn = new BlazeConnection(sig, id.peerId, remotePeerId, false);
+
+    const engine = new TransferEngine(conn, id);
+
+    conn.on('connected', (tier) => {
+      setConnectionTier(tier);
+      engine.setTier(tier);
+      activityLog.log('success', 'P2P connected (responder)', `Tier: ${tier}`);
+    });
+
+    conn.on('tier_detected', (tier) => {
+      setConnectionTier(tier);
+      engine.setTier(tier);
+    });
+
+    conn.on('failed', () => {
+      activityLog.log('error', 'Connection failed', 'P2P connection dropped');
+      setActiveConnection(null);
+      setConnectedPeer(null);
+      setConnectionTier(null);
+    });
+
+    conn.init();
+
+    setActiveConnection(conn);
+    setConnectedPeer(remotePeerId);
+    setTransferEngine(engine);
+  }, []);
+
+  // ── Join a room by code ──
+  const _joinRoom = useCallback((code) => {
+    const id = identityRef.current;
+    if (!id) return;
+
     const sig = new SignalingChannel(`room_${code}`, id.peerId);
+    roomSignalingRef.current = sig;
+
     sig.on('peers', (peers) => {
-      // Merge WAN peers with LAN peers (deduplicate by id)
       setLanPeers(prev => {
-        const ids = new Set(prev.map(p => p.id));
-        const newPeers = peers.filter(p => !ids.has(p.id));
+        const existingIds = new Set(prev.map(p => p.id));
+        const newPeers = peers.filter(p => !existingIds.has(p.id));
         return [...prev, ...newPeers.map(p => ({ ...p, isWan: true }))];
       });
     });
-    await sig.connect({
-      displayName: id.displayName,
-      os: id.os
+
+    // Listen for incoming offers in this room too
+    sig.on('signal', async (payload) => {
+      if (payload.type === 'offer' && payload.from) {
+        _handleIncomingConnection(sig, payload.from);
+      }
     });
-    activityLog.log('success', 'WAN room joined', `Room: ${code}`);
-    return sig;
-  }, []);
 
-  // FIX #1: connectToPeer now uses the SAME signaling room the peer is already in
-  const connectToPeer = useCallback(async (remotePeerId, isLan = false) => {
-    if (!identity) return;
+    sig.connect({ displayName: id.displayName, os: id.os });
+    activityLog.log('success', 'Room joined', `Room: ${code}`);
+  }, [_handleIncomingConnection]);
 
-    // Use the LAN room signaling if it's a LAN peer
-    // This fixes the "wrong room" bug — we reuse the room both peers are in
-    let sig;
-    if (isLan && lanSignalingRef.current) {
-      sig = lanSignalingRef.current;
-      activityLog.log('info', 'Connecting via LAN', `To peer: ${remotePeerId.slice(0, 8)}...`);
-    } else {
-      // For WAN, create a new signaling channel with the room code
-      const code = roomCode || generateRoomCode();
-      if (!roomCode) setRoomCode(code);
-      sig = new SignalingChannel(`room_${code}`, identity.peerId);
-      await sig.connect({ displayName: identity.displayName, os: identity.os });
-      activityLog.log('info', 'Connecting via WAN', `Room: ${code}, Peer: ${remotePeerId.slice(0, 8)}...`);
+  // ── Connect to a specific peer (initiator side) ──
+  const connectToPeer = useCallback(async (remotePeerId) => {
+    const id = identityRef.current;
+    if (!id) return;
+
+    // Use lobby signaling (both peers are already in it)
+    let sig = lobbySignalingRef.current;
+
+    // If we have a room, use the room signaling instead
+    if (roomSignalingRef.current) {
+      sig = roomSignalingRef.current;
     }
 
-    const conn = new BlazeConnection(sig, identity.peerId, remotePeerId, true);
-    conn.expectedTier = isLan ? 'lan' : 'wan';
+    if (!sig) {
+      activityLog.log('error', 'No signaling', 'Not connected to any channel');
+      return;
+    }
 
-    const engine = new TransferEngine(conn, identity);
+    activityLog.log('info', 'Connecting...', `To peer: ${remotePeerId.slice(0, 8)}...`);
+
+    const conn = new BlazeConnection(sig, id.peerId, remotePeerId, true);
+    const engine = new TransferEngine(conn, id);
 
     conn.on('connected', (tier) => {
       setConnectionTier(tier);
@@ -110,11 +173,11 @@ export function usePeer(identity) {
     });
 
     conn.on('lan_failed', () => {
-      activityLog.log('fallback', 'LAN failed → WAN/TURN', 'AP Isolation detected, falling back...');
+      activityLog.log('fallback', 'LAN failed → WAN/TURN', 'AP Isolation detected');
     });
 
     conn.on('ice_timeout', () => {
-      activityLog.log('error', 'WebRTC timeout', 'All ICE candidates failed');
+      activityLog.log('error', 'WebRTC timeout', 'All ICE candidates failed — using relay chat');
     });
 
     conn.on('failed', () => {
@@ -131,26 +194,27 @@ export function usePeer(identity) {
     setTransferEngine(engine);
 
     return conn;
-  }, [identity, roomCode]);
+  }, []);
 
-  // Create a room code for sharing
+  // ── Create a room ──
   const createRoom = useCallback(() => {
     const code = generateRoomCode();
     setRoomCode(code);
-    if (identity) {
-      _joinRoom(code, identity);
-    }
+    _joinRoom(code);
     activityLog.log('info', 'Room created', `Code: ${code}`);
     return code;
-  }, [identity, _joinRoom]);
+  }, [_joinRoom]);
 
-  // Join an existing room by code
+  // ── Join an existing room ──
   const joinRoom = useCallback(async (code) => {
     setRoomCode(code);
-    if (identity) {
-      await _joinRoom(code, identity);
-    }
-  }, [identity, _joinRoom]);
+    _joinRoom(code);
+  }, [_joinRoom]);
+
+  // ── Get the active signaling channel for relay chat ──
+  const getSignaling = useCallback(() => {
+    return roomSignalingRef.current || lobbySignalingRef.current || null;
+  }, []);
 
   return {
     lanPeers,
@@ -161,6 +225,7 @@ export function usePeer(identity) {
     transferEngine,
     roomCode,
     createRoom,
-    joinRoom
+    joinRoom,
+    getSignaling
   };
 }
