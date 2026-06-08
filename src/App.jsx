@@ -122,7 +122,10 @@ function App() {
   const handleSendMessage = useCallback(() => {
     if (!inputText.trim() || !connectedPeer) return;
 
-    const msg = createMessage(inputText, stableIdentity?.peerId);
+    const msg = createMessage(inputText, stableIdentity?.peerId, {
+      id: crypto.randomUUID(),
+      timestamp: Date.now()
+    });
     seenMsgIds.current.add(msg.id); // Add own message to seen
 
     // Always send via Relay as a reliable fallback
@@ -223,7 +226,7 @@ function App() {
       {/* Pending Request Overlay */}
       {pendingRequest && (
         <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#09090b]/80 backdrop-blur-3xl border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+          <div className="bg-[#18181b]/50 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
             <div className="w-12 h-12 border-4 border-[#ef4444] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <h3 className="text-[#fafafa] font-semibold text-lg mb-1">Waiting for Peer</h3>
             <p className="text-[#a1a1aa] text-sm">Request sent. Waiting for them to accept...</p>
@@ -234,7 +237,7 @@ function App() {
       {/* Incoming Request Overlay */}
       {incomingRequest && (
         <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#09090b]/80 backdrop-blur-3xl border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_8px_32px_rgba(0,0,0,0.5)] animate-slideDown">
+          <div className="bg-[#18181b]/50 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_8px_32px_rgba(0,0,0,0.5)] animate-slideDown">
             <div className="w-16 h-16 bg-[#ef4444]/20 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl">👋</span>
             </div>
