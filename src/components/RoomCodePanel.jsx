@@ -69,7 +69,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
         {/* Create Room */}
         <button
           onClick={onCreateRoom}
-          className="flex-1 py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)] active:scale-[0.98]"
+          className="flex-[3] py-3.5 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-[15px] font-bold transition-all active:scale-[0.98]"
         >
           Create Secure Room
         </button>
@@ -77,7 +77,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
         {/* Join Room */}
         <button
           onClick={() => setJoinExpanded(!joinExpanded)}
-          className={`flex-1 py-3.5 bg-transparent border border-[#3f3f46] text-[#fafafa] hover:bg-[#27272a] rounded-xl text-[15px] font-semibold transition-colors ${joinExpanded ? 'bg-[#27272a]' : ''}`}
+          className={`flex-[2] py-3.5 bg-[#09090b] border border-[#27272a] text-[#fafafa] hover:bg-[#18181b] rounded-xl text-[15px] font-semibold transition-all active:scale-[0.98] ${joinExpanded ? 'bg-[#18181b] border-[#3f3f46]' : ''}`}
         >
           Join Room
         </button>
