@@ -15,12 +15,16 @@ export function useTransfer(transferEngine, activeConnection) {
     const receiver = new Receiver(
       meta,
       (bytes, total, seq, totalChunks) => {
-        // Progress updates via direct DOM in FileTransfer component
+        window.dispatchEvent(new CustomEvent('transfer_progress', {
+          detail: { transferId: meta.transferId, bytesTransferred: bytes, totalBytes: total }
+        }));
       },
       (fileHash, blobUrl) => {
         activityLog.log('success', 'File received', `${meta.fileName} — hash: ${fileHash?.slice(0, 12)}...`);
         if (blobUrl) {
-          globalMessageStore.updateMessageByTransferId(meta.transferId, { blobUrl });
+          globalMessageStore.updateMessageByTransferId(meta.transferId, { blobUrl, completed: true });
+        } else {
+          globalMessageStore.updateMessageByTransferId(meta.transferId, { completed: true });
         }
         // Remove from active transfers on completion
         setActiveTransfers(prev => prev.filter(t => t.meta.transferId !== meta.transferId));
@@ -112,15 +116,19 @@ export function useTransfer(transferEngine, activeConnection) {
       remotePeerId,
       transferId,
       (bytes, total, seq, totalChunks) => {
-        // UI updates via direct DOM
+        window.dispatchEvent(new CustomEvent('transfer_progress', {
+          detail: { transferId, bytesTransferred: bytes, totalBytes: total }
+        }));
       },
       (hash) => {
         activityLog.log('success', 'File sent', `${file.name} — hash: ${hash?.slice(0, 12)}...`);
         setActiveTransfers(prev => prev.filter(t => t.meta.transferId !== transferId));
+        globalMessageStore.updateMessageByTransferId(transferId, { completed: true });
       },
       (err) => {
         activityLog.log('error', 'File send error', err.message);
         setActiveTransfers(prev => prev.filter(t => t.meta.transferId !== transferId));
+        globalMessageStore.updateMessageByTransferId(transferId, { declined: true, error: err.message });
       }
     );
   }, [transferEngine]);

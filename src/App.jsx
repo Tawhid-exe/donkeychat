@@ -36,6 +36,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [chatReady, setChatReady] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -239,7 +240,7 @@ function App() {
   //  RENDER
   // ════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col h-[100dvh] bg-[#09090b] text-[#fafafa] overflow-hidden font-sans relative" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div className="flex flex-col fixed inset-0 bg-[#09090b] text-[#fafafa] overflow-hidden font-sans" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       
       {/* Pending Request Overlay */}
       {pendingRequest && (
@@ -394,7 +395,7 @@ function App() {
           </div>
 
           {/* Chat Messages Area — Telegram style */}
-          <div ref={chatAreaRef} className="flex-1 overflow-y-auto relative z-0" style={{ background: '#0a0a0c' }}>
+          <div ref={chatAreaRef} className="flex-1 overflow-y-auto relative z-0" style={{ background: '#0a0a0c', WebkitOverflowScrolling: 'touch' }}>
             <div className="max-w-3xl mx-auto px-3 py-4 flex flex-col gap-1">
               {messages.length === 0 && (
                 <div className="flex items-center justify-center py-16">
@@ -425,9 +426,7 @@ function App() {
                 const isLast = !nextMsg || nextMsg.senderId !== msg.senderId || nextMsg.type === 'system';
 
                 const isMediaMsg = msg.type === 'file' && msg.blobUrl;
-                const isDeclined = msg.type === 'file' && msg.declined;
-
-                if (isDeclined) return null; // hide declined file messages
+                // Removed early return for isDeclined to allow FileTransfer to handle it
 
                 // ── MEDIA MESSAGE (image/video) — borderless messenger style ──
                 if (isMediaMsg) {
@@ -444,12 +443,14 @@ function App() {
                             style={{ maxHeight: '360px' }}
                           />
                         ) : (
-                          <img
-                            src={msg.blobUrl}
-                            alt={msg.meta?.fileName || 'image'}
-                            className="w-full block rounded-2xl"
-                            style={{ maxHeight: '360px', objectFit: 'cover' }}
-                          />
+                          <button onClick={() => setFullscreenImage(msg.blobUrl)} className="w-full block outline-none">
+                            <img
+                              src={msg.blobUrl}
+                              alt={msg.meta?.fileName || 'image'}
+                              className="w-full block rounded-2xl cursor-zoom-in"
+                              style={{ maxHeight: '360px', objectFit: 'cover' }}
+                            />
+                          </button>
                         )}
                         {/* Timestamp overlay on media */}
                         <div className="absolute bottom-1.5 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5">
@@ -480,6 +481,9 @@ function App() {
                             status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
                             onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
                             onDecline={msg.meta?.transferId ? () => declineTransfer(msg.meta.transferId) : undefined}
+                            declined={msg.declined}
+                            error={msg.error}
+                            completed={msg.completed}
                           />
                         </div>
                       ) : (
@@ -502,7 +506,7 @@ function App() {
           </div>
 
           {/* Input Bar — Telegram style */}
-          <div className="border-t border-[#3f3f46] bg-[#18181b] px-2 py-2 flex-shrink-0 relative z-10">
+          <div className="border-t border-[#3f3f46] bg-[#18181b] px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex-shrink-0 relative z-10">
             <div className="flex items-end gap-1.5 w-full mx-auto relative">
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
               <input type="file" accept="image/*,video/*" ref={imageInputRef} onChange={handleFileSelect} className="hidden" />
@@ -566,6 +570,26 @@ function App() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Fullscreen Image Modal */}
+      {fullscreenImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md cursor-zoom-out"
+          onClick={() => setFullscreenImage(null)}
+        >
+          <button 
+            className="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-full hover:bg-black/80 transition-colors"
+            onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+          <img 
+            src={fullscreenImage} 
+            alt="Fullscreen" 
+            className="max-w-full max-h-[100dvh] object-contain"
+          />
+        </div>
       )}
     </div>
   );

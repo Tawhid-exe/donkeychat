@@ -174,8 +174,7 @@ export class BlazeConnection {
 
     for (let i = 0; i < NUM_TRANSFER_CHANNELS; i++) {
       const dc = this.pc.createDataChannel(`blaze-transfer-${i}`, {
-        ordered: false,
-        maxRetransmits: 3
+        ordered: false
       });
       this._setupTransferChannel(dc, i);
       this.transferChannels.push(dc);

@@ -1,11 +1,11 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 
-export function useTransferProgress() {
+export function useTransferProgress(transferId) {
   const barRef = useRef(null);
   const textRef = useRef(null);
   const lastUpdateRef = useRef(0);
   
-  const updateProgress = useCallback((bytesTransferred, totalBytes, chunksReceived, totalChunks) => {
+  const updateProgress = useCallback((bytesTransferred, totalBytes) => {
     const now = performance.now();
     
     if (now - lastUpdateRef.current < 100) return;
@@ -24,5 +24,16 @@ export function useTransferProgress() {
     }
   }, []);
 
-  return { barRef, textRef, updateProgress };
+  useEffect(() => {
+    if (!transferId) return;
+    const handler = (e) => {
+      if (e.detail.transferId === transferId) {
+        updateProgress(e.detail.bytesTransferred, e.detail.totalBytes);
+      }
+    };
+    window.addEventListener('transfer_progress', handler);
+    return () => window.removeEventListener('transfer_progress', handler);
+  }, [transferId, updateProgress]);
+
+  return { barRef, textRef };
 }
