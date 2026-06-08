@@ -45,24 +45,24 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
   }, [isJoinMode]);
 
   return (
-    <div className="p-3 border-t border-gray-800">
+    <div className="p-3 border-t border-[#3f3f46]">
       {/* Room code display */}
       {roomCode && (
-        <div className="mb-2 p-3 bg-[#2a2a35] rounded-xl relative">
+        <div className="mb-2 p-3 bg-[#27272a] rounded-xl relative border border-[#3f3f46]">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Room Code</span>
+            <span className="text-[10px] uppercase tracking-wider text-[#a1a1aa] font-semibold">Room Code</span>
             <button
               onClick={handleCopy}
-              className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-[10px] text-[#ef4444] hover:text-[#dc2626] transition-colors"
             >
               {showCopied ? '✓ Copied!' : 'Copy Link'}
             </button>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-lg font-mono font-bold text-blue-300 tracking-[0.3em]">{roomCode}</p>
+            <p className="text-lg font-mono font-bold text-[#ef4444] tracking-[0.3em] drop-shadow-[0_0_10px_rgba(239,68,68,0.3)]">{roomCode}</p>
             <button 
               onClick={() => setQrMode('share')}
-              className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"
+              className="p-1.5 bg-[#ef4444]/10 text-[#ef4444] rounded-lg hover:bg-[#ef4444]/20 transition-colors"
               title="Show QR Code"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -78,7 +78,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
         {!roomCode && (
           <button
             onClick={onCreateRoom}
-            className="flex-1 py-2 px-3 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded-lg text-xs font-medium transition-colors border border-blue-600/30"
+            className="flex-1 py-3 px-3 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-sm font-semibold transition-colors shadow-[0_0_15px_rgba(239,68,68,0.2)]"
           >
             Create Room
           </button>
@@ -91,12 +91,12 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
               onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
               onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
               placeholder="Enter code..."
-              className="flex-1 min-w-0 bg-[#2a2a35] text-sm text-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500/50 font-mono tracking-wider"
+              className="flex-1 min-w-0 bg-[#09090b] text-sm text-[#fafafa] rounded-xl px-3 py-2 border border-[#3f3f46] focus:outline-none focus:border-[#ef4444] focus:ring-1 focus:ring-[#ef4444]/50 font-mono tracking-wider text-center"
               maxLength={8}
             />
             <button
               onClick={() => setQrMode('scan')}
-              className="px-2 py-2 bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 rounded-lg transition-colors border border-purple-600/30 flex-shrink-0"
+              className="px-3 py-2 bg-[#18181b] text-[#fafafa] hover:bg-[#27272a] rounded-xl transition-colors border border-[#3f3f46] flex-shrink-0"
               title="Scan QR Code"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -105,7 +105,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
             </button>
             <button
               onClick={handleJoin}
-              className="px-3 py-2 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded-lg text-xs font-medium transition-colors border border-emerald-600/30 flex-shrink-0"
+              className="px-4 py-2 bg-[#ef4444] text-white hover:bg-[#dc2626] rounded-xl text-sm font-semibold transition-colors flex-shrink-0 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
             >
               Join
             </button>
@@ -113,7 +113,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom }) {
         ) : (
           <button
             onClick={() => setIsJoinMode(true)}
-            className="flex-1 py-2 px-3 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded-lg text-xs font-medium transition-colors border border-emerald-600/30"
+            className="flex-1 py-3 px-3 bg-[#18181b] text-[#fafafa] hover:bg-[#27272a] rounded-xl text-sm font-semibold transition-colors border border-[#3f3f46]"
           >
             Join Room
           </button>

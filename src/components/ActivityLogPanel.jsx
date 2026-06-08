@@ -52,7 +52,7 @@ export function ActivityLogPanel() {
       <div className="flex items-center gap-2">
         {/* Online count badge */}
         <div
-          className="flex items-center gap-2 px-3 py-1.5 bg-[#1c1c24]/95 backdrop-blur-xl border border-gray-700/50 rounded-full shadow-lg cursor-default select-none"
+          className="flex items-center gap-2 px-3 py-1.5 bg-[#18181b]/95 backdrop-blur-xl border border-[#3f3f46] rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.5)] cursor-default select-none"
           title="Users currently online on this network"
         >
           <span className="relative flex h-2.5 w-2.5">
@@ -67,10 +67,10 @@ export function ActivityLogPanel() {
         {/* Activity log toggle */}
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 bg-[#1c1c24]/95 backdrop-blur-xl border rounded-full shadow-lg transition-all hover:bg-[#2a2a35]/95 ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 bg-[#18181b]/95 backdrop-blur-xl border rounded-full shadow-lg transition-all hover:bg-[#27272a] ${
             hasErrors ? 'border-red-500/50' :
             hasWarnings ? 'border-yellow-500/50' :
-            'border-gray-700/50'
+            'border-[#3f3f46]'
           }`}
           title="Activity Log"
         >
@@ -80,9 +80,9 @@ export function ActivityLogPanel() {
           <span className="text-xs font-medium text-gray-400">Log</span>
           {entries.length > 0 && (
             <span className={`text-[10px] font-bold px-1.5 rounded-full ${
-              hasErrors ? 'bg-red-500/20 text-red-400' :
+              hasErrors ? 'bg-[#ef4444]/20 text-[#ef4444]' :
               hasWarnings ? 'bg-yellow-500/20 text-yellow-400' :
-              'bg-gray-600/30 text-gray-400'
+              'bg-[#3f3f46] text-[#a1a1aa]'
             }`}>
               {entries.length}
             </span>
@@ -92,14 +92,14 @@ export function ActivityLogPanel() {
 
       {/* Dropdown panel */}
       {isOpen && (
-        <div className="mt-2 w-96 max-h-[60vh] bg-[#14141c]/98 backdrop-blur-xl border border-gray-700/50 rounded-xl shadow-2xl overflow-hidden animate-slideDown">
-          <div className="px-4 py-3 border-b border-gray-700/50 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-200">Activity Log</h3>
-            <span className="text-[10px] text-gray-500">{entries.length} entries</span>
+        <div className="mt-2 w-96 max-h-[60vh] bg-[#09090b]/98 backdrop-blur-xl border border-[#3f3f46] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] overflow-hidden animate-slideDown">
+          <div className="px-4 py-3 border-b border-[#3f3f46] flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-[#fafafa]">Activity Log</h3>
+            <span className="text-[10px] text-[#a1a1aa]">{entries.length} entries</span>
           </div>
           <div className="overflow-y-auto max-h-[calc(60vh-48px)] custom-scrollbar">
             {entries.length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-500 text-sm">
+              <div className="px-4 py-8 text-center text-[#a1a1aa] text-sm">
                 No activity yet
               </div>
             ) : (
@@ -108,17 +108,17 @@ export function ActivityLogPanel() {
                 return (
                   <div
                     key={entry.id}
-                    className={`px-4 py-2.5 border-b border-gray-800/50 ${style.bg} hover:bg-white/[0.02] transition-colors`}
+                    className={`px-4 py-2.5 border-b border-[#3f3f46]/50 ${style.bg} hover:bg-[#27272a] transition-colors`}
                   >
                     <div className="flex items-start gap-2">
                       <span className="text-sm flex-shrink-0 mt-0.5">{style.icon}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline justify-between gap-2">
                           <span className={`text-xs font-medium ${style.text}`}>{entry.title}</span>
-                          <span className="text-[10px] text-gray-600 flex-shrink-0">{timeAgo(entry.timestamp)}</span>
+                          <span className="text-[10px] text-[#a1a1aa] flex-shrink-0">{timeAgo(entry.timestamp)}</span>
                         </div>
                         {entry.detail && (
-                          <p className="text-[11px] text-gray-500 mt-0.5 truncate">{entry.detail}</p>
+                          <p className="text-[11px] text-[#a1a1aa] mt-0.5 truncate">{entry.detail}</p>
                         )}
                       </div>
                     </div>
