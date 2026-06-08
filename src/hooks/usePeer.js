@@ -10,17 +10,23 @@ export function usePeer(identity) {
   const [connectionTier, setConnectionTier] = useState(null);
   const [transferEngine, setTransferEngine] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
+  const [incomingRequest, setIncomingRequest] = useState(null);
+  const [pendingRequest, setPendingRequest] = useState(null);
 
   // Refs to hold mutable state without triggering re-renders
   const lobbySignalingRef = useRef(null);
   const roomSignalingRef = useRef(null);
   const identityRef = useRef(null);
+  const pendingRequestRef = useRef(null);
   const initedRef = useRef(false);
 
-  // Keep identityRef in sync
+  // Keep refs in sync
   useEffect(() => {
     identityRef.current = identity;
   }, [identity]);
+  useEffect(() => {
+    pendingRequestRef.current = pendingRequest;
+  }, [pendingRequest]);
 
   // ── Discovery: join global lobby once ──
   useEffect(() => {
@@ -49,10 +55,22 @@ export function usePeer(identity) {
       activityLog.setOnlineCount(peers.length + 1);
     });
 
-    // Listen for incoming WebRTC offers in the lobby
+    // Listen for incoming signals
     lobbySig.on('signal', async (payload) => {
-      if (payload.type === 'offer' && payload.from) {
-        activityLog.log('info', 'Incoming connection', `From: ${payload.from.slice(0, 8)}...`);
+      if (payload.type === 'chat_request' && payload.from) {
+        setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer' });
+      } else if (payload.type === 'chat_accept' && payload.from) {
+        if (pendingRequestRef.current === payload.from) {
+          setPendingRequest(null);
+          _startInitiatorConnection(lobbySig, payload.from);
+        }
+      } else if (payload.type === 'chat_reject' && payload.from) {
+        if (pendingRequestRef.current === payload.from) {
+          setPendingRequest(null);
+          activityLog.log('error', 'Connection rejected', 'User denied the chat request');
+        }
+      } else if (payload.type === 'offer' && payload.from) {
+        // Fallback for direct WebRTC offers
         _handleIncomingConnection(lobbySig, payload.from);
       }
     });
@@ -129,7 +147,19 @@ export function usePeer(identity) {
 
     // Listen for incoming offers in this room too
     sig.on('signal', async (payload) => {
-      if (payload.type === 'offer' && payload.from) {
+      if (payload.type === 'chat_request' && payload.from) {
+        setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer' });
+      } else if (payload.type === 'chat_accept' && payload.from) {
+        if (pendingRequestRef.current === payload.from) {
+          setPendingRequest(null);
+          _startInitiatorConnection(sig, payload.from);
+        }
+      } else if (payload.type === 'chat_reject' && payload.from) {
+        if (pendingRequestRef.current === payload.from) {
+          setPendingRequest(null);
+          activityLog.log('error', 'Connection rejected', 'User denied the chat request');
+        }
+      } else if (payload.type === 'offer' && payload.from) {
         _handleIncomingConnection(sig, payload.from);
       }
     });
@@ -156,7 +186,18 @@ export function usePeer(identity) {
       return;
     }
 
-    activityLog.log('info', 'Connecting...', `To peer: ${remotePeerId.slice(0, 8)}...`);
+    activityLog.log('info', 'Sending request', `To peer: ${remotePeerId.slice(0, 8)}...`);
+    setPendingRequest(remotePeerId);
+    
+    sig.signal(remotePeerId, {
+      type: 'chat_request',
+      displayName: id.displayName
+    });
+  }, []);
+
+  const _startInitiatorConnection = useCallback(async (sig, remotePeerId) => {
+    const id = identityRef.current;
+    if (!id) return;
 
     const conn = new BlazeConnection(sig, id.peerId, remotePeerId, true);
     const engine = new TransferEngine(conn, id);
@@ -196,6 +237,25 @@ export function usePeer(identity) {
     return conn;
   }, []);
 
+  const acceptRequest = useCallback(() => {
+    if (!incomingRequest) return;
+    const sig = roomSignalingRef.current || lobbySignalingRef.current;
+    if (sig) {
+      sig.signal(incomingRequest.from, { type: 'chat_accept' });
+      _handleIncomingConnection(sig, incomingRequest.from);
+    }
+    setIncomingRequest(null);
+  }, [incomingRequest, _handleIncomingConnection]);
+
+  const rejectRequest = useCallback(() => {
+    if (!incomingRequest) return;
+    const sig = roomSignalingRef.current || lobbySignalingRef.current;
+    if (sig) {
+      sig.signal(incomingRequest.from, { type: 'chat_reject' });
+    }
+    setIncomingRequest(null);
+  }, [incomingRequest]);
+
   // ── Create a room ──
   const createRoom = useCallback(() => {
     const code = generateRoomCode();
@@ -226,6 +286,10 @@ export function usePeer(identity) {
     roomCode,
     createRoom,
     joinRoom,
-    getSignaling
+    getSignaling,
+    incomingRequest,
+    pendingRequest,
+    acceptRequest,
+    rejectRequest
   };
 }

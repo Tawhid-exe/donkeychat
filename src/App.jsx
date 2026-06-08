@@ -26,7 +26,7 @@ function App() {
   const {
     lanPeers, connectToPeer, activeConnection, connectedPeer,
     connectionTier, transferEngine, roomCode, createRoom, joinRoom,
-    getSignaling
+    getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest
   } = usePeer(stableIdentity);
 
   const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer } = useTransfer(transferEngine, activeConnection);
@@ -190,7 +190,39 @@ function App() {
   //  RENDER
   // ════════════════════════════════════════════════════
   return (
-    <div className="flex h-screen bg-[#09090b] text-[#fafafa] overflow-hidden font-sans" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div className="flex flex-col h-[100dvh] bg-[#09090b] text-[#fafafa] overflow-hidden font-sans relative" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      
+      {/* Pending Request Overlay */}
+      {pendingRequest && (
+        <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#18181b] border border-[#3f3f46] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+            <div className="w-12 h-12 border-4 border-[#ef4444] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <h3 className="text-[#fafafa] font-semibold text-lg mb-1">Waiting for Peer</h3>
+            <p className="text-[#a1a1aa] text-sm">Request sent. Waiting for them to accept...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Incoming Request Overlay */}
+      {incomingRequest && (
+        <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#18181b] border border-[#3f3f46] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-slideDown">
+            <div className="w-16 h-16 bg-[#ef4444]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">👋</span>
+            </div>
+            <h3 className="text-[#fafafa] font-semibold text-lg mb-1">{incomingRequest.displayName} wants to connect</h3>
+            <p className="text-[#a1a1aa] text-sm mb-6">Start a secure P2P chat session?</p>
+            <div className="flex gap-3">
+              <button onClick={rejectRequest} className="flex-1 py-3 px-4 bg-transparent border border-[#3f3f46] hover:bg-[#27272a] text-[#fafafa] rounded-xl font-semibold transition-colors">
+                Decline
+              </button>
+              <button onClick={acceptRequest} className="flex-1 py-3 px-4 bg-[#ef4444] hover:bg-[#dc2626] text-white rounded-xl font-semibold transition-colors shadow-lg shadow-red-900/20">
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Drag overlay */}
       {isDragging && connectedPeer && (
@@ -201,10 +233,10 @@ function App() {
         </div>
       )}
 
-      <ActivityLogPanel />
-
       {!connectedPeer ? (
-        /* ═══════ LANDING / SETUP SCREEN ═══════ */
+        <>
+          <ActivityLogPanel />
+          {/* ═══════ LANDING / SETUP SCREEN ═══════ */}
         <div className="flex-1 flex items-center justify-center p-4 md:p-6 overflow-y-auto">
           <div className="bg-[#18181b] border border-[#3f3f46] rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] max-w-[500px] w-full flex flex-col overflow-hidden">
 
@@ -281,25 +313,28 @@ function App() {
         <div className="flex-1 flex flex-col relative w-full h-full bg-[#09090b]">
 
           {/* Chat Header */}
-          <div className="h-14 px-4 flex items-center justify-between border-b border-[#3f3f46] bg-[#18181b] z-10 flex-shrink-0">
+          <div className="h-14 px-4 flex items-center justify-between border-b border-[#3f3f46] bg-[#18181b] z-10 flex-shrink-0 w-full relative">
             <div className="flex items-center gap-3 min-w-0">
               <button onClick={() => window.location.reload()} className="md:hidden flex-shrink-0 text-[#a1a1aa] hover:text-[#fafafa] transition-colors p-1">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </button>
               <div className="w-9 h-9 bg-[#ef4444] rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
                 {peerName.charAt(0)}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 pr-2">
                 <h2 className="font-semibold text-[#fafafa] text-[14px] truncate">{peerName}</h2>
                 <div className="flex items-center gap-1.5">
                   <span className={`w-1.5 h-1.5 rounded-full ${tierInfo.dot}`}></span>
-                  <span className="text-[11px]" style={{ color: tierInfo.color }}>{tierInfo.label}</span>
+                  <span className="text-[11px] truncate" style={{ color: tierInfo.color }}>{tierInfo.label}</span>
                 </div>
               </div>
             </div>
-            <button onClick={() => window.location.reload()} className="hidden md:block px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors">
-              End
-            </button>
+            <div className="flex items-center gap-3">
+              <ActivityLogPanel isChatMode={true} />
+              <button onClick={() => window.location.reload()} className="hidden md:block px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors">
+                End
+              </button>
+            </div>
           </div>
 
           {/* Chat Messages Area — Telegram style */}

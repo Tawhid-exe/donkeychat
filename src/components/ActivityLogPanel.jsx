@@ -18,7 +18,7 @@ function timeAgo(ts) {
   return `${Math.floor(diff / 3600000)}h ago`;
 }
 
-export function ActivityLogPanel() {
+export function ActivityLogPanel({ isChatMode = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [entries, setEntries] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
@@ -47,7 +47,7 @@ export function ActivityLogPanel() {
   const hasWarnings = entries.some(e => e.level === 'warn');
 
   return (
-    <div ref={panelRef} className="fixed top-3 left-3 z-50" id="activity-log-panel">
+    <div ref={panelRef} className={isChatMode ? "relative z-50 flex items-center gap-2 font-sans" : "fixed top-3 left-3 z-50 flex items-center gap-2 font-sans"} id="activity-log-panel">
       {/* Online Users Meter + Activity Toggle */}
       <div className="flex items-center gap-2">
         {/* Online count badge */}
@@ -92,7 +92,7 @@ export function ActivityLogPanel() {
 
       {/* Dropdown panel */}
       {isOpen && (
-        <div className="mt-2 w-96 max-h-[60vh] bg-[#09090b]/98 backdrop-blur-xl border border-[#3f3f46] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] overflow-hidden animate-slideDown">
+        <div className={`absolute mt-2 w-80 max-h-[60vh] bg-[#09090b]/98 backdrop-blur-xl border border-[#3f3f46] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] overflow-hidden animate-slideDown ${isChatMode ? 'right-0 top-full' : 'left-0 top-full'}`}>
           <div className="px-4 py-3 border-b border-[#3f3f46] flex items-center justify-between">
             <h3 className="text-sm font-semibold text-[#fafafa]">Activity Log</h3>
             <span className="text-[10px] text-[#a1a1aa]">{entries.length} entries</span>
