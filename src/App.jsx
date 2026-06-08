@@ -35,17 +35,25 @@ function App() {
   const [inputText, setInputText] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [chatReady, setChatReady] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const chatAreaRef = useRef(null);
+  const seenMsgIds = useRef(new Set());
 
   // Deep Link Auto-Join
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('join') || params.get('room');
+    const peer = params.get('peer');
     if (code && code.length >= 4 && !connectedPeer && !activeConnection) {
-      setTimeout(() => joinRoom(code), 800);
+      setTimeout(() => {
+        joinRoom(code);
+        if (peer) {
+          setTimeout(() => connectToPeer(peer), 1000);
+        }
+      }, 800);
     }
   }, []);
 
@@ -65,7 +73,9 @@ function App() {
         handleIncomingFile(msg.meta);
         globalMessageStore.addMessage(createFileMessage(msg.meta, connectedPeer));
       } else {
-        globalMessageStore.addMessage(createMessage(msg.text, connectedPeer));
+        if (seenMsgIds.current.has(msg.id)) return;
+        seenMsgIds.current.add(msg.id);
+        globalMessageStore.addMessage(msg);
       }
     };
 
@@ -87,8 +97,15 @@ function App() {
     if (!sig) return;
 
     const relayHandler = (payload) => {
-      if (payload.from === connectedPeer) {
-        globalMessageStore.addMessage(createMessage(payload.text, connectedPeer));
+      if (payload.from === connectedPeer && payload.msgId && !seenMsgIds.current.has(payload.msgId)) {
+        seenMsgIds.current.add(payload.msgId);
+        globalMessageStore.addMessage({
+          id: payload.msgId,
+          text: payload.text,
+          senderId: payload.from,
+          timestamp: payload.timestamp || Date.now(),
+          type: 'text'
+        });
       }
     };
 
@@ -101,22 +118,22 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ── Send message (tries WebRTC first, falls back to relay) ──
+  // ── Send message (tries WebRTC and Relay simultaneously) ──
   const handleSendMessage = useCallback(() => {
     if (!inputText.trim() || !connectedPeer) return;
 
-    const displayName = customName || stableIdentity?.displayName || 'You';
     const msg = createMessage(inputText, stableIdentity?.peerId);
+    seenMsgIds.current.add(msg.id); // Add own message to seen
 
-    // Try WebRTC data channel first
+    // Always send via Relay as a reliable fallback
+    const sig = getSignaling();
+    if (sig) {
+      sig.sendRelayChat({ text: inputText, to: connectedPeer, msgId: msg.id, timestamp: msg.timestamp });
+    }
+
+    // Try WebRTC data channel if open
     if (activeConnection?.chatChannel?.readyState === 'open') {
       activeConnection.sendChat(msg);
-    } else {
-      // Fallback: send via Supabase broadcast relay
-      const sig = getSignaling();
-      if (sig) {
-        sig.sendRelayChat({ text: inputText, to: connectedPeer });
-      }
     }
 
     globalMessageStore.addMessage(msg);
@@ -126,6 +143,13 @@ function App() {
   // ── File handling ──
   const processFile = useCallback(async (file) => {
     if (!connectedPeer) return;
+
+    const MAX_SIZE = 100 * 1024 * 1024; // 100MB
+    if (file.size > MAX_SIZE) {
+      alert(`File is too large (${(file.size / 1e6).toFixed(1)}MB). Limit is 100MB for optimal performance.`);
+      return;
+    }
+
     let fileToSend = file;
 
     if (file.type.startsWith('image/')) {
@@ -146,7 +170,11 @@ function App() {
       } catch (e) { /* use original */ }
     }
 
-    globalMessageStore.addMessage(createFileMessage({ fileName: fileToSend.name, fileSize: fileToSend.size }, stableIdentity?.peerId));
+    globalMessageStore.addMessage(createFileMessage({ 
+      fileName: fileToSend.name, 
+      fileSize: fileToSend.size,
+      mimeType: fileToSend.type 
+    }, stableIdentity?.peerId));
     sendFile(fileToSend, connectedPeer);
   }, [connectedPeer, stableIdentity, sendFile]);
 
@@ -195,7 +223,7 @@ function App() {
       {/* Pending Request Overlay */}
       {pendingRequest && (
         <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#18181b] border border-[#3f3f46] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+          <div className="bg-[#09090b]/80 backdrop-blur-3xl border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
             <div className="w-12 h-12 border-4 border-[#ef4444] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <h3 className="text-[#fafafa] font-semibold text-lg mb-1">Waiting for Peer</h3>
             <p className="text-[#a1a1aa] text-sm">Request sent. Waiting for them to accept...</p>
@@ -206,7 +234,7 @@ function App() {
       {/* Incoming Request Overlay */}
       {incomingRequest && (
         <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#18181b] border border-[#3f3f46] rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-slideDown">
+          <div className="bg-[#09090b]/80 backdrop-blur-3xl border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_8px_32px_rgba(0,0,0,0.5)] animate-slideDown">
             <div className="w-16 h-16 bg-[#ef4444]/20 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl">👋</span>
             </div>
@@ -233,10 +261,10 @@ function App() {
         </div>
       )}
 
+      <ActivityLogPanel />
+
       {!connectedPeer ? (
-        <>
-          <ActivityLogPanel />
-          {/* ═══════ LANDING / SETUP SCREEN ═══════ */}
+        /* ═══════ LANDING / SETUP SCREEN ═══════ */
         <div className="flex-1 flex items-center justify-center p-4 md:p-6 overflow-y-auto">
           <div className="bg-[#18181b] border border-[#3f3f46] rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] max-w-[500px] w-full flex flex-col overflow-hidden">
 
@@ -310,8 +338,10 @@ function App() {
         </>
       ) : (
         /* ═══════ TELEGRAM-STYLE CHAT VIEW ═══════ */
-        <div className="flex-1 flex flex-col relative w-full h-full bg-[#09090b]">
-
+        <div className="flex-1 flex flex-col relative w-full h-full bg-[#09090b] md:max-w-3xl md:mx-auto md:border-x md:border-[#3f3f46]">
+          {/* Spacer for global ActivityLog on mobile */}
+          <div className="md:hidden w-full h-14 flex-shrink-0 bg-[#09090b]"></div>
+          
           {/* Chat Header */}
           <div className="h-14 px-4 flex items-center justify-between border-b border-[#3f3f46] bg-[#18181b] z-10 flex-shrink-0 w-full relative">
             <div className="flex items-center gap-3 min-w-0">
@@ -330,9 +360,6 @@ function App() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="hidden md:block">
-                <ActivityLogPanel isChatMode={true} />
-              </div>
               <button onClick={() => window.location.reload()} className="px-3 py-1.5 bg-[#09090b] border border-[#3f3f46] rounded-lg text-xs text-[#a1a1aa] hover:text-[#fafafa] hover:bg-[#27272a] transition-colors">
                 End
               </button>
@@ -380,12 +407,20 @@ function App() {
                       }`}
                     >
                       {msg.type === 'file' ? (
-                        <div className="w-56 md:w-64">
-                          <FileTransfer
-                            meta={msg.meta}
-                            status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
-                            onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
-                          />
+                        <div className={`w-56 md:w-64 ${msg.blobUrl ? 'w-auto max-w-full' : ''}`}>
+                          {msg.blobUrl ? (
+                            msg.meta?.mimeType?.startsWith('video/') ? (
+                              <video src={msg.blobUrl} controls className="w-full rounded-lg shadow-sm" />
+                            ) : (
+                              <img src={msg.blobUrl} alt={msg.meta?.fileName} className="w-full rounded-lg shadow-sm" />
+                            )
+                          ) : (
+                            <FileTransfer
+                              meta={msg.meta}
+                              status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
+                              onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
+                            />
+                          )}
                         </div>
                       ) : (
                         <p className="text-[14.5px] leading-[1.45] whitespace-pre-wrap break-words">{msg.text}</p>
@@ -408,11 +443,23 @@ function App() {
 
           {/* Input Bar — Telegram style */}
           <div className="border-t border-[#3f3f46] bg-[#18181b] px-2 py-2 flex-shrink-0 relative z-10">
-            <div className="flex items-end gap-1.5 max-w-3xl mx-auto">
+            <div className="flex items-end gap-1.5 w-full mx-auto relative">
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-              <input type="file" accept="image/*" ref={imageInputRef} onChange={handleFileSelect} className="hidden" />
+              <input type="file" accept="image/*,video/*" ref={imageInputRef} onChange={handleFileSelect} className="hidden" />
 
-              <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center text-[#71717a] hover:text-[#ef4444] rounded-full transition-colors flex-shrink-0" title="Attach file">
+              {/* Attachment Menu Popover */}
+              {attachmentMenuOpen && (
+                <div className="absolute bottom-12 left-0 mb-2 bg-[#18181b] border border-[#3f3f46] rounded-xl shadow-xl flex flex-col p-1 animate-slideDown origin-bottom-left w-48">
+                  <button onClick={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 text-sm text-[#fafafa] hover:bg-[#27272a] rounded-lg transition-colors text-left">
+                    <span className="text-xl">🖼️</span> Image / Video
+                  </button>
+                  <button onClick={() => { setAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 text-sm text-[#fafafa] hover:bg-[#27272a] rounded-lg transition-colors text-left">
+                    <span className="text-xl">📄</span> Document
+                  </button>
+                </div>
+              )}
+
+              <button onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)} className="w-10 h-10 flex items-center justify-center text-[#71717a] hover:text-[#ef4444] rounded-full transition-colors flex-shrink-0" title="Attach file">
                 <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
               </button>
 

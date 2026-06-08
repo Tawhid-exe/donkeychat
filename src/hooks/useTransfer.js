@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { Receiver } from '../transfer/receiver';
 import { activityLog } from '../utils/activityLog';
+import { globalMessageStore } from '../chat/messages';
 
 export function useTransfer(transferEngine, activeConnection) {
   const [activeTransfers, setActiveTransfers] = useState([]);
@@ -17,8 +18,11 @@ export function useTransfer(transferEngine, activeConnection) {
       (bytes, total, seq, totalChunks) => {
         // Progress handled via direct DOM updates in FileTransfer component
       },
-      (fileHash) => {
+      (fileHash, blobUrl) => {
         activityLog.log('success', 'File received', `${meta.fileName} — hash: ${fileHash?.slice(0, 12)}...`);
+        if (blobUrl) {
+          globalMessageStore.updateMessageByTransferId(meta.transferId, { blobUrl });
+        }
         receiversRef.current.delete(meta.transferId);
       },
       (err) => {
@@ -35,7 +39,8 @@ export function useTransfer(transferEngine, activeConnection) {
     // For auto-accept (small files), we use blob/opfs mode which doesn't need gesture
 
     // Determine if we need user gesture (FSA mode requires it)
-    const needsGesture = 'showSaveFilePicker' in window &&
+    const isMedia = meta.mimeType?.startsWith('image/') || meta.mimeType?.startsWith('video/');
+    const needsGesture = !isMedia && 'showSaveFilePicker' in window &&
       !/iPad|iPhone|iPod/.test(navigator.userAgent);
 
     if (needsGesture && meta.fileSize <= 2 * 1024 * 1024 * 1024) {

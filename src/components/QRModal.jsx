@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { generateShareUrl } from '../core/discovery';
 
-export function QRModal({ isOpen, onClose, mode, roomCode, onScan }) {
+export function QRModal({ isOpen, onClose, mode, roomCode, myPeerId, onScan }) {
   const [error, setError] = useState('');
   const qrRef = useRef(null);
   const videoRef = useRef(null);
@@ -11,7 +11,7 @@ export function QRModal({ isOpen, onClose, mode, roomCode, onScan }) {
   useEffect(() => {
     if (isOpen && mode === 'share' && roomCode && qrRef.current) {
       try {
-        const url = generateShareUrl(roomCode);
+        const url = generateShareUrl(roomCode, myPeerId);
         const qr = window.qrcode(0, 'H');
         qr.addData(url);
         qr.make();
@@ -20,7 +20,7 @@ export function QRModal({ isOpen, onClose, mode, roomCode, onScan }) {
         console.error('QR Generate Error:', err);
       }
     }
-  }, [isOpen, mode, roomCode]);
+  }, [isOpen, mode, roomCode, myPeerId]);
 
   useEffect(() => {
     if (isOpen && mode === 'scan') startScanner();
@@ -68,9 +68,10 @@ export function QRModal({ isOpen, onClose, mode, roomCode, onScan }) {
         try {
           const url = new URL(code.data);
           const room = url.searchParams.get('room');
+          const peer = url.searchParams.get('peer');
           if (room) {
             stopScanner();
-            onScan?.(room);
+            onScan?.(room, peer);
             onClose();
             return;
           }

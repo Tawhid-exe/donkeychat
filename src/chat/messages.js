@@ -34,6 +34,18 @@ export class MessageStore {
     this.messages = [];
     this.notify();
   }
+
+  updateMessageByTransferId(transferId, updates) {
+    let updated = false;
+    this.messages = this.messages.map(msg => {
+      if (msg.meta?.transferId === transferId) {
+        updated = true;
+        return { ...msg, ...updates };
+      }
+      return msg;
+    });
+    if (updated) this.notify();
+  }
 }
 
 // Factory helpers from BLAZE_BUILD_DOCS Section 13

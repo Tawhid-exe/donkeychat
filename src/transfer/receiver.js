@@ -142,7 +142,7 @@ export class Receiver {
       });
     }, 5000);
     
-    this.onComplete(this.meta.fileHash);
+    this.onComplete(this.meta.fileHash, null);
     this._shutdown();
   }
 
@@ -155,7 +155,7 @@ export class Receiver {
       }
     }
     await this.fsaWritable.close();
-    this.onComplete(this.meta.fileHash);
+    this.onComplete(this.meta.fileHash, null);
     this._shutdown();
   }
 
@@ -167,9 +167,14 @@ export class Receiver {
       type: this.meta.mimeType || 'application/octet-stream'
     });
     const url = URL.createObjectURL(blob);
-    this._triggerDownload(url, this.meta.fileName);
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-    this.onComplete(this.meta.fileHash);
+    
+    const isMedia = this.meta.mimeType?.startsWith('image/') || this.meta.mimeType?.startsWith('video/');
+    if (!isMedia) {
+      this._triggerDownload(url, this.meta.fileName);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+    
+    this.onComplete(this.meta.fileHash, isMedia ? url : null);
     this._shutdown();
   }
 
@@ -191,6 +196,11 @@ export class Receiver {
   }
 
   async _detectWriterMode() {
+    // Force blob for media so we can render inline
+    if (this.meta.mimeType?.startsWith('image/') || this.meta.mimeType?.startsWith('video/')) {
+      return 'blob';
+    }
+
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     if ('showSaveFilePicker' in window && !isIOS) {
       return 'fsa';
