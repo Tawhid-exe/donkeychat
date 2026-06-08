@@ -16,7 +16,7 @@ export function usePeer(identity) {
   const lanRoomIdRef = useRef(null);
 
   useEffect(() => {
-    if (!identity) return;
+    if (!identity?.peerId) return;
 
     activityLog.log('info', 'Identity ready', `${identity.displayName} (${identity.os})`);
 
@@ -58,7 +58,7 @@ export function usePeer(identity) {
     return () => {
       lanSignalingRef.current?.disconnect();
     };
-  }, [identity]);
+  }, [identity?.peerId]);
 
   // Join a specific room (for WAN connections via room code)
   const _joinRoom = useCallback(async (code, id) => {
