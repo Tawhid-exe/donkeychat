@@ -84,8 +84,8 @@ export function QRModal({ isOpen, onClose, mode, roomCode, myPeerId, onScan }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-[#18181b]/50 backdrop-blur-2xl border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-[fadeIn_0.15s_ease]">
+      <div className="bg-[#18181b]/50 backdrop-blur-2xl border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] animate-[scaleIn_0.2s_cubic-bezier(0.34,1.56,0.64,1)]">
         <div className="flex justify-between items-center mb-5">
           <h2 className="text-lg font-semibold text-[#fafafa]">
             {mode === 'share' ? 'Share Room Code' : 'Scan QR Code'}

@@ -59,6 +59,11 @@ export function getRoomCodeFromUrl() {
   return params.get('room') || null;
 }
 
+export function getPeerFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('peer') || null;
+}
+
 export async function probeLanSubnet(onFound) {
   const dummyPc = new RTCPeerConnection({
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]

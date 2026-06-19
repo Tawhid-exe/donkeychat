@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { generateShareUrl } from '../core/discovery';
 import { QRModal } from './QRModal';
 
-export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPeer, myPeerId }) {
+export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPeer, myPeerId, incomingRequest, acceptRequest }) {
   const [joinExpanded, setJoinExpanded] = useState(false);
   const [joinInput, setJoinInput] = useState('');
   const [showCopied, setShowCopied] = useState(false);
@@ -83,7 +83,7 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
           <button
             onClick={() => setQrMode('share')}
             disabled={isExpired}
-            className="p-2 bg-[#ef4444]/10 text-[#ef4444] rounded-lg hover:bg-[#ef4444]/20 transition-colors disabled:opacity-50"
+            className="p-2 bg-[#ef4444]/10 text-[#ef4444] rounded-lg hover:bg-[#ef4444]/20 active:scale-90 transition-all duration-150 disabled:opacity-50"
             title="Show QR Code"
           >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

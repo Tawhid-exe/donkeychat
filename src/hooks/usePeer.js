@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SignalingChannel, BlazeConnection, getRoomCodeFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
+import { SignalingChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
 import { TransferEngine, TIER } from '../transfer/engine';
 import { activityLog } from '../utils/activityLog';
 
@@ -107,12 +107,24 @@ export function usePeer(identity) {
         os: identity.os
       });
 
-      // Check URL for room code
+      // Check URL for room code + optional peer (from Copy Link)
       const urlRoom = getRoomCodeFromUrl();
+      const urlPeer = getPeerFromUrl();
       if (urlRoom) {
         setRoomCode(urlRoom);
         activityLog.log('info', 'Room code from URL', urlRoom);
         _joinRoom(urlRoom);
+        // If a peer ID is embedded in the link, auto-send a connection request
+        // after joining the room so the other side can accept immediately
+        if (urlPeer) {
+          setTimeout(() => {
+            activityLog.log('info', 'Auto-connecting via link', urlPeer.slice(0, 8) + '...');
+            setPendingRequest(urlPeer);
+            const payload = { type: 'chat_request', displayName: identityRef.current?.displayName };
+            if (roomSignalingRef.current) roomSignalingRef.current.signal(urlPeer, payload);
+            if (lobbySignalingRef.current) lobbySignalingRef.current.signal(urlPeer, payload);
+          }, 2000); // 2s delay to let room subscription settle
+        }
       }
     };
 
@@ -326,12 +338,12 @@ export function usePeer(identity) {
   }, [incomingRequest]);
 
   const updateNickname = useCallback((newName) => {
-    if (lobbySignalingRef.current && identityRef.current) {
-      lobbySignalingRef.current.updatePresence({
-        displayName: newName,
-        os: identityRef.current.os
-      });
-    }
+    const id = identityRef.current;
+    if (!id) return;
+    // Track full presence payload so the 'peers' sync handler sees the updated name
+    const presencePayload = { displayName: newName, os: id.os };
+    if (lobbySignalingRef.current) lobbySignalingRef.current.updatePresence(presencePayload);
+    if (roomSignalingRef.current) roomSignalingRef.current.updatePresence(presencePayload);
   }, []);
 
   // ── Create a room ──
