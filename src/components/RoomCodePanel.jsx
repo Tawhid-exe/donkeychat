@@ -51,6 +51,14 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
     return () => clearInterval(interval);
   }, [roomCode]);
 
+  // Auto-accept incoming requests if the QR code is open
+  React.useEffect(() => {
+    if (qrMode !== null && incomingRequest) {
+      acceptRequest();
+      setQrMode(null);
+    }
+  }, [qrMode, incomingRequest, acceptRequest]);
+
   // ── Room code display (after creating a room) ──
   if (roomCode) {
     const mins = Math.floor(timeLeft / 60);
@@ -83,7 +91,13 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
             </svg>
           </button>
         </div>
-        <QRModal isOpen={qrMode !== null} onClose={() => setQrMode(null)} mode={qrMode} roomCode={roomCode} myPeerId={myPeerId} />
+        <QRModal isOpen={qrMode !== null} onClose={() => setQrMode(null)} mode={qrMode} roomCode={roomCode} myPeerId={myPeerId} onScan={(code, peer) => {
+          onJoinRoom(code);
+          setJoinInput('');
+          if (peer && connectToPeer) {
+            setTimeout(() => connectToPeer(peer), 1500);
+          }
+        }} />
       </div>
     );
   }

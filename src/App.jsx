@@ -324,13 +324,15 @@ function App() {
               </div>
 
               {/* Room Controls */}
-              <RoomCodePanel
-                roomCode={roomCode}
-                onCreateRoom={createRoom}
-                onJoinRoom={joinRoom}
-                connectToPeer={connectToPeer}
-                myPeerId={stableIdentity?.peerId}
-              />
+                <RoomCodePanel
+                  roomCode={roomCode}
+                  onCreateRoom={createRoom}
+                  onJoinRoom={joinRoom}
+                  connectToPeer={connectToPeer}
+                  myPeerId={stableIdentity?.peerId}
+                  incomingRequest={incomingRequest}
+                  acceptRequest={acceptRequest}
+                />
 
               {/* Peer list — only shown when peers found */}
               {lanPeers.length > 0 && (

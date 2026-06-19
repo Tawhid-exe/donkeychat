@@ -53,6 +53,9 @@ export class BlazeConnection {
     this.handlers = {};
 
     this.wanTimeout = null;
+    this.lanTimeout = null;
+    // Set to 'lan' by usePeer when connecting via LAN discovery channel
+    this.expectedTier = null;
   }
 
   // FIX #8: on() now supports multiple handlers per event
@@ -124,11 +127,31 @@ export class BlazeConnection {
       }
     };
 
-    this.wanTimeout = setTimeout(() => {
-      if (this.pc.connectionState !== 'connected') {
-        this._emit('ice_timeout');
-      }
-    }, 10000);
+    // AP Isolation fast failover (UPDATE 4):
+    // LAN-expected connections get 3s before falling back so AP-isolated networks
+    // (university, hotel Wi-Fi) don't stall for 10s.
+    if (this.expectedTier === 'lan') {
+      this.lanTimeout = setTimeout(() => {
+        if (this.pc.connectionState !== 'connected') {
+          console.info('LAN ICE failed after 3s (AP Isolation likely) — promoting to WAN/TURN');
+          this._emit('lan_failed');
+          // Do NOT close — TURN candidates still gathering on same PC
+          // Start WAN fallback timer from this point
+          this.wanTimeout = setTimeout(() => {
+            if (this.pc.connectionState !== 'connected') {
+              this._emit('ice_timeout');
+            }
+          }, 10000);
+        }
+      }, 3000);
+    } else {
+      // Global / WAN connection — allow full 10 seconds
+      this.wanTimeout = setTimeout(() => {
+        if (this.pc.connectionState !== 'connected') {
+          this._emit('ice_timeout');
+        }
+      }, 10000);
+    }
 
     if (this.isInitiator) {
       this._createChannels();
@@ -252,6 +275,8 @@ export class BlazeConnection {
   close() {
     clearTimeout(this.lanTimeout);
     clearTimeout(this.wanTimeout);
+    this.lanTimeout = null;
+    this.wanTimeout = null;
     this.transferChannels.forEach(dc => dc?.close());
     this.chatChannel?.close();
     this.pc?.close();

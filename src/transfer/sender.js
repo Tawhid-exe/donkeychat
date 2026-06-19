@@ -26,12 +26,16 @@ export class Sender {
     this.cancelled = false;
     this.transferId = transferId || crypto.randomUUID();
 
-    // UPDATE 3: Throttle progress at sender
+    // UPDATE 3: Throttle progress at sender — also fires window event for direct DOM updates
     this._lastProgressEmit = 0;
     this._throttledProgress = (bytes, total, seq, totalChunks) => {
       const now = performance.now();
       if (now - this._lastProgressEmit < 80) return;
       this._lastProgressEmit = now;
+      // Fire as a DOM event so useTransferProgress can write directly to DOM refs (zero React re-renders)
+      window.dispatchEvent(new CustomEvent('transfer_progress', {
+        detail: { transferId: this.transferId, bytesTransferred: bytes, totalBytes: total, seq, totalChunks }
+      }));
       this.onProgress(bytes, total, seq, totalChunks);
     };
   }

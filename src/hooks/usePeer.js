@@ -43,17 +43,28 @@ export function usePeer(identity) {
 
     const initLobby = async () => {
       let networkId = `lobby_local_${Math.random().toString(36).slice(2,10)}`;
+      
       try {
-        const res = await fetch('https://api.ipify.org?format=json');
-        if (res.ok) {
-          const data = await res.json();
-          // Hash the IP lightly for privacy in the channel name
-          const ipHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(data.ip))))
-            .map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
-          networkId = `lobby_${ipHash}`;
+        const { probeLanSubnet } = await import('../core/discovery');
+        const lanHash = await new Promise((resolve) => {
+          let found = false;
+          probeLanSubnet((roomId) => {
+            found = true;
+            resolve(roomId);
+          });
+          setTimeout(() => {
+            if (!found) resolve(null);
+          }, 3000); // 3 sec timeout for ICE gathering
+        });
+        
+        if (lanHash) {
+          networkId = lanHash;
+          console.log('Joined LAN discovery subnet:', networkId.slice(0, 12) + '...');
+        } else {
+          console.warn('No local subnet found via ICE, using isolated fallback lobby');
         }
       } catch (e) {
-        console.warn('Failed to detect public IP for local discovery, using isolated random lobby', e);
+        console.warn('Failed to run ICE subnet discovery, using isolated random lobby', e);
       }
 
       // Join network-specific lobby for presence / online count
@@ -71,12 +82,14 @@ export function usePeer(identity) {
       });
 
       lobbySig.on('signal', async (payload) => {
+      // isLan=true because this lobby was discovered via ICE subnet hash (same physical router)
+      const isLan = networkId.startsWith('lan_');
       if (payload.type === 'chat_request' && payload.from) {
-        setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer' });
+        setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer', isLan });
       } else if (payload.type === 'chat_accept' && payload.from) {
         if (pendingRequestRef.current === payload.from) {
           setPendingRequest(null);
-          _startInitiatorConnection(lobbySig, payload.from);
+          _startInitiatorConnection(lobbySig, payload.from, isLan);
         }
       } else if (payload.type === 'chat_reject' && payload.from) {
         if (pendingRequestRef.current === payload.from) {
@@ -85,7 +98,7 @@ export function usePeer(identity) {
         }
       } else if (payload.type === 'offer' && payload.from) {
         // Fallback for direct WebRTC offers
-        _handleIncomingConnection(lobbySig, payload.from);
+        _handleIncomingConnection(lobbySig, payload.from, isLan);
       }
     });
 
@@ -113,7 +126,7 @@ export function usePeer(identity) {
   }, [identity?.peerId]);
 
   // ── Handle incoming P2P connection (responder side) ──
-  const _handleIncomingConnection = useCallback(async (sig, remotePeerId) => {
+  const _handleIncomingConnection = useCallback(async (sig, remotePeerId, isLan = false) => {
     if (activeConnectionRef.current) return;
     
     activityLog.log('info', 'Incoming connection', `From ${remotePeerId}`);
@@ -122,6 +135,8 @@ export function usePeer(identity) {
     if (!id) return;
 
     const conn = new BlazeConnection(sig, id.peerId, remotePeerId, false);
+    // Flag LAN-expected so AP Isolation fast failover activates
+    conn.expectedTier = isLan ? 'lan' : null;
     activeConnectionRef.current = conn;
 
     const engine = new TransferEngine(conn, id);
@@ -221,13 +236,15 @@ export function usePeer(identity) {
     if (lobbySignalingRef.current) lobbySignalingRef.current.signal(remotePeerId, payload);
   }, []);
 
-  const _startInitiatorConnection = useCallback(async (sig, remotePeerId) => {
+  const _startInitiatorConnection = useCallback(async (sig, remotePeerId, isLan = false) => {
     const id = identityRef.current;
     if (!id) return;
 
     if (activeConnectionRef.current) return;
 
     const conn = new BlazeConnection(sig, id.peerId, remotePeerId, true);
+    // Flag LAN-expected so AP Isolation fast failover activates
+    conn.expectedTier = isLan ? 'lan' : null;
     activeConnectionRef.current = conn;
     const engine = new TransferEngine(conn, id);
 
@@ -281,6 +298,7 @@ export function usePeer(identity) {
   const acceptRequest = useCallback(() => {
     if (!incomingRequest) return;
     const payload = { type: 'chat_accept' };
+    const isLan = !!incomingRequest.isLan;
     
     let activeSig = null;
     if (roomSignalingRef.current) {
@@ -293,7 +311,7 @@ export function usePeer(identity) {
     }
     
     if (activeSig) {
-      _handleIncomingConnection(activeSig, incomingRequest.from);
+      _handleIncomingConnection(activeSig, incomingRequest.from, isLan);
     }
     setIncomingRequest(null);
   }, [incomingRequest, _handleIncomingConnection]);
