@@ -1,0 +1,3010 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DonkeyChat - Secure P2P</title>
+    <meta name="description" content="Encrypted P2P chat and file transfer. No accounts, no traces, no server storage.">
+    <meta name="theme-color" content="#09090b">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/icon-192.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon-192.svg">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-color: #09090b;
+            --surface: #18181b;
+            --surface-hover: #27272a;
+            --border: #3f3f46;
+            --text-main: #fafafa;
+            --text-muted: #a1a1aa;
+            --brand-red: #ef4444;
+            --brand-red-hover: #dc2626;
+            --red-glow: rgba(239, 68, 68, 0.15);
+            --green: #22c55e;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #2b2b33;
+        }
+
+        ::-webkit-scrollbar-corner {
+            background: var(--bg-color);
+        }
+
+        ::-webkit-scrollbar-button {
+            display: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px var(--red-glow);
+            max-width: 540px;
+            width: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- HEADER --- */
+        /* Discovery Peer Cards */
+        .peer-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .peer-card:hover {
+            border-color: var(--brand-red);
+            background: var(--surface-hover);
+        }
+
+        .header {
+            padding: 28px 32px 20px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-top: 6px;
+        }
+
+        .traffic-badge {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--text-main);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .traffic-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--green);
+        }
+
+        .traffic-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 6px var(--green);
+        }
+
+        /* --- SCREENS --- */
+        #setupScreen {
+            padding: 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        #chatScreen {
+            display: none;
+            padding: 0;
+            height: 600px;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* --- INPUTS --- */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .input-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 13px 16px;
+            border-radius: var(--radius-md);
+            font-size: 15px;
+            transition: all 0.2s ease;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--brand-red);
+            box-shadow: 0 0 0 3px var(--red-glow);
+        }
+
+        input[type="text"]:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* --- BUTTONS --- */
+        .btn-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        button {
+            padding: 13px 20px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--brand-red);
+            color: white;
+            flex: 2;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--brand-red-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg-color);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            flex: 1;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--surface-hover);
+            border-color: #52525b;
+        }
+
+        /* --- CODE BOX --- */
+        .code-box {
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            text-align: center;
+        }
+
+        .code-digits {
+            font-family: 'Courier New', monospace;
+            font-size: 44px;
+            font-weight: 700;
+            letter-spacing: 8px;
+            color: var(--brand-red);
+            margin: 10px 0 6px;
+            text-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+        }
+
+        .code-timer {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .code-timer.urgent {
+            color: #f97316;
+        }
+
+        .code-timer.critical {
+            color: var(--brand-red);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: 0.5
+            }
+        }
+
+        .join-form {
+            display: flex;
+            gap: 8px;
+        }
+
+        .join-form input {
+            text-align: center;
+            letter-spacing: 4px;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        /* --- STATUS --- */
+        .info-box {
+            background: rgba(239, 68, 68, 0.05);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            padding: 14px 16px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            color: #fca5a5;
+            line-height: 1.6;
+        }
+
+        .info-box span {
+            color: var(--brand-red);
+            font-weight: bold;
+        }
+
+        /* WebRTC mode badge */
+        .mode-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 20px;
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--green);
+            border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+
+        .mode-badge.relay {
+            background: rgba(239, 68, 68, 0.1);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.25);
+        }
+
+        .mode-badge.connecting {
+            background: rgba(251, 191, 36, 0.1);
+            color: #fbbf24;
+            border-color: rgba(251, 191, 36, 0.25);
+        }
+
+        .status-text {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .status-dot.active {
+            background: var(--green);
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.4);
+        }
+
+        .status-dot.error {
+            background: var(--brand-red);
+        }
+
+        /* --- CHAT SCREEN --- */
+        .chat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--surface);
+            gap: 10px;
+        }
+
+        .chat-header-left {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .chat-header-left h3 {
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .chat-header-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .chat-header-meta p {
+            font-size: 12px;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            background: var(--bg-color);
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 10px;
+        }
+
+        .msg-wrapper {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .msg-wrapper.sent {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+
+        .msg-wrapper.received {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+
+        .msg-nick {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 3px;
+            padding: 0 4px;
+        }
+
+        .msg {
+            padding: 11px 15px;
+            border-radius: 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            position: relative;
+        }
+
+        .msg-wrapper.sent .msg {
+            background: var(--brand-red);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .msg-wrapper.received .msg {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Read receipt */
+        .msg-meta {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 3px;
+            padding: 0 4px;
+        }
+
+        .msg-time {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .read-tick {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: color 0.3s;
+            line-height: 1;
+        }
+
+        .read-tick.seen {
+            color: #60a5fa;
+        }
+
+        .msg.system {
+            align-self: center;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 500;
+            padding: 6px 14px;
+            border: 1px dashed var(--border);
+            border-radius: 20px;
+            max-width: 90%;
+            text-align: center;
+            margin: 4px 0;
+        }
+
+        .chat-input-area {
+            padding: 16px 20px;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .chat-input-area textarea {
+            flex: 1;
+            padding: 12px 16px;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: white;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            resize: none;
+            font-family: inherit;
+            overflow-y: auto;
+            max-height: 150px;
+            min-height: 44px;
+            box-sizing: border-box;
+            line-height: 1.4;
+        }
+
+        .chat-input-area textarea:focus {
+            outline: none;
+            border-color: var(--brand-red);
+        }
+
+        .btn-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: 0.2s;
+            font-size: 16px;
+        }
+
+        .btn-icon:hover:not(:disabled) {
+            background: var(--surface-hover);
+            color: var(--brand-red);
+        }
+
+        .btn-send {
+            background: var(--brand-red);
+            border: none;
+            color: white;
+        }
+
+        .btn-send:hover:not(:disabled) {
+            background: var(--brand-red-hover);
+            color: white;
+        }
+
+        /* File UI */
+        .file-msg {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            width: 280px;
+            /* Ensure cards are compact on mobile */
+            max-width: 100%;
+            white-space: normal;
+        }
+
+        .file-msg-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .file-icon {
+            font-size: 26px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name {
+            font-weight: 600;
+            font-size: 13px;
+            word-break: break-all;
+            line-height: 1.3;
+        }
+
+        .file-meta {
+            font-size: 11px;
+            opacity: 0.75;
+            margin-top: 3px;
+        }
+
+        /* Accept / Decline buttons */
+        .file-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .btn-accept {
+            flex: 1;
+            padding: 8px 0;
+            background: var(--green);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn-accept:hover {
+            opacity: 0.85;
+        }
+
+        .btn-decline {
+            flex: 1;
+            padding: 8px 0;
+            background: transparent;
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-decline:hover {
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .msg-wrapper.sent .btn-decline {
+            color: rgba(255, 255, 255, 0.9);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .msg-wrapper.sent .btn-decline:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Progress */
+        .progress-wrap {
+            margin-top: 10px;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            transition: width 0.12s linear;
+        }
+
+        .msg-wrapper.sent .progress-bar {
+            background: rgba(255, 255, 255, 0.75);
+        }
+
+        .msg-wrapper.received .progress-bar {
+            background: var(--green);
+        }
+
+        .msg-wrapper.received .progress-wrap {
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        .progress-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        /* Transfer mode label */
+        .transfer-mode {
+            font-size: 10px;
+            opacity: 0.65;
+            margin-top: 4px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Drag Overlay */
+        .drag-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(9, 9, 11, 0.85);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: var(--brand-red);
+            font-size: 20px;
+            font-weight: 600;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            border: 2px dashed var(--brand-red);
+            border-radius: var(--radius-lg);
+            margin: 10px;
+        }
+
+        #chatScreen.drag-active .drag-overlay {
+            opacity: 1;
+        }
+
+        /* QR Code Display */
+        .qr-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin: 12px 0 6px;
+        }
+
+        .qr-container img,
+        .qr-container canvas {
+            border-radius: 12px;
+            background: white;
+            padding: 10px;
+        }
+
+        .qr-label {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* QR Scanner Overlay */
+        .qr-scanner-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            gap: 16px;
+        }
+
+        .qr-scanner-overlay video {
+            width: 300px;
+            height: 300px;
+            object-fit: cover;
+            border-radius: 16px;
+            border: 2px solid var(--brand-red);
+        }
+
+        .qr-scanner-overlay .btn-secondary {
+            flex: 0 0 auto;
+        }
+
+        .qr-scanner-overlay .scanner-title {
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        /* Custom Prompt Overlay */
+        .custom-prompt-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .custom-prompt {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            width: 100%;
+            max-width: 320px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .custom-prompt h3 {
+            margin-top: 0;
+            margin-bottom: 12px;
+        }
+
+        .custom-prompt p {
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 24px;
+        }
+
+        .custom-prompt-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .custom-prompt-actions button {
+            flex: 1;
+        }
+
+        .qr-scanner-overlay .btn-secondary {
+            margin-top: 8px;
+        }
+
+        /* Scan QR button */
+        .btn-scan {
+            padding: 8px 14px;
+            font-size: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: 0.2s;
+        }
+
+        .btn-scan:hover {
+            background: var(--surface-hover);
+            border-color: var(--brand-red);
+        }
+
+        /* Image Messages */
+        .msg.image-msg {
+            padding: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .chat-image {
+            max-width: 260px;
+            max-height: 260px;
+            border-radius: 14px;
+            cursor: pointer;
+            object-fit: cover;
+            width: 100%;
+            display: block;
+            transition: opacity 0.2s;
+        }
+
+        .msg.sent.image-msg .chat-image {
+            border-bottom-right-radius: 4px;
+        }
+
+        .msg.received.image-msg .chat-image {
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-image:hover {
+            opacity: 0.9;
+        }
+
+        .img-download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: transparent;
+            border: 1px solid var(--border);
+            margin-top: 6px;
+            transition: 0.2s;
+        }
+
+        .img-download-btn:hover {
+            background: var(--surface-hover);
+            color: var(--text-main);
+        }
+
+        .msg-wrapper.sent .img-download-btn {
+            border-color: rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .msg-wrapper.sent .img-download-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        /* LAN Mode Toggle */
+        .lan-section {
+            margin-top: 12px;
+            padding: 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+        }
+
+        .lan-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .lan-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .switch {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            background: var(--border);
+            border-radius: 22px;
+            transition: 0.3s;
+            flex-shrink: 0;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: 0.3s;
+        }
+
+        .switch.active {
+            background: var(--green);
+        }
+
+        .switch.active::after {
+            left: 21px;
+        }
+
+        .lan-input-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .lan-input-row input {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: white;
+            font-size: 13px;
+        }
+
+        .lan-input-row input:focus {
+            outline: none;
+            border-color: var(--green);
+        }
+
+        .lan-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        .mode-badge.lan {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+
+        /* Image view overlay */
+        .img-viewer-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+        }
+
+        .img-viewer-overlay img {
+            max-width: 95vw;
+            max-height: 90vh;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Traffic counter at top-left -->
+    <div class="traffic-badge" id="trafficBadge" style="display: none;">
+        <span>Current Traffic</span>
+        <div class="traffic-pill">
+            <span class="traffic-dot"></span>
+            <span id="trafficCount">1</span> Online
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>🫏 DonkeyChat</h1>
+            <p>Encrypted P2P network. Zero traces.</p>
+        </div>
+
+        <div id="setupScreen">
+            <div class="status-text" id="serverStatus">
+                <div class="status-dot"></div> Connecting to relay server... (takes 30-50s max)
+            </div>
+
+            <div class="input-group">
+                <label>Nickname</label>
+                <input type="text" id="nickInput" placeholder="Enter your display name..." maxlength="20"
+                    oninput="onNickInput()">
+            </div>
+
+            <div class="btn-row">
+                <button class="btn-primary" id="createBtn" onclick="createRoom()" disabled>Create Secure Room</button>
+                <button class="btn-secondary" id="joinBtn" onclick="toggleJoin()" disabled>Join Room</button>
+            </div>
+
+            <div id="codeBox" class="code-box hidden">
+                <div class="status-text">
+                    <div class="status-dot active"></div> Room Active — Share code or QR with peer
+                </div>
+                <div class="code-digits" id="codeDisplay">------</div>
+                <div class="qr-container" id="qrContainer"></div>
+                <div class="code-timer" id="codeTimer">⏱ Expires in 10:00</div>
+                <button class="btn-secondary" style="width:100%;" onclick="copyCode()">📋 Copy Passcode</button>
+            </div>
+
+            <div id="joinSection" class="hidden">
+                <div class="input-group">
+                    <label>Enter Room Passcode</label>
+                    <div class="join-form">
+                        <input type="text" id="joinInput" placeholder="000000" maxlength="6" inputmode="numeric"
+                            oninput="this.value=this.value.replace(/\D/g,'')">
+                        <button class="btn-primary" style="flex:0 0 auto;" onclick="joinRoom()">Connect</button>
+                    </div>
+                    <button class="btn-scan" onclick="openQRScanner()">📷 Scan QR Code</button>
+                </div>
+                <div id="joinStatus" style="margin-top:10px;"></div>
+            </div>
+
+            <div id="discoverySection" class="hidden" style="margin-top:20px; text-align:left;">
+                <h3 style="font-size:14px; color:var(--text-muted); margin-bottom:12px; font-weight:500;">Nearby Devices
+                </h3>
+                <div id="peerList" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+
+            <div class="info-box">
+                <span>How it works:</span> Serverless P2P via <strong>Supabase Realtime</strong> signaling + <strong>WebRTC</strong> for all file transfers.
+                Files go <strong>directly between devices</strong> — zero server contact. Supports LAN (⚡ unlimited), Internet P2P (🔒 unlimited), CGNAT bypass via TURN/TLS.
+                Chat relay active until WebRTC connects. Room codes expire in <strong>10 minutes</strong>.
+            </div>
+        </div>
+
+        <div id="chatScreen">
+            <div class="chat-header">
+                <div class="chat-header-left">
+                    <h3>Secure Session</h3>
+                    <div class="chat-header-meta">
+                        <p id="chatSubtext">🟢 Connected</p>
+                        <span id="connectionModeBadge" class="mode-badge connecting">⚡ Connecting...</span>
+                    </div>
+                </div>
+                <button class="btn-secondary" style="padding:8px 12px;font-size:12px;flex:none;"
+                    onclick="disconnect()">End Session</button>
+            </div>
+
+            <div class="chat-messages" id="chatMessages"></div>
+
+            <div class="chat-input-area">
+                <button class="btn-icon" id="attachBtn" onclick="pickFile()" disabled title="Send File">📎</button>
+                <button class="btn-icon" id="imgBtn" onclick="pickImage()" disabled title="Send Image">🖼️</button>
+                <textarea id="msgInput" placeholder="Type a message..." onkeydown="onKey(event)"
+                    oninput="this.style.height='auto';this.style.height=(this.scrollHeight)+'px';" rows="1"
+                    disabled></textarea>
+                <button class="btn-icon btn-send" id="sendBtn" onclick="sendMessage()" disabled title="Send">
+                    <img src="https://github.com/Tawhid-exe/chat/blob/main/sendicon.png?raw=true" alt="Send"
+                        style="width:26px;height:26px;object-fit:contain;transform:translateX(-1px);">
+                </button>
+            </div>
+            <input type="file" id="fileInput" class="hidden" onchange="sendFile()">
+            <input type="file" id="imageInput" class="hidden" accept="image/*" onchange="sendImageFile()">
+            <div class="drag-overlay">
+                <div>📁 Drop File to Send</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supabase Configuration Modal (Only shows if defaults are not configured) -->
+    <div id="supabaseConfigModal" class="custom-prompt-overlay hidden">
+        <div class="custom-prompt" style="max-width: 400px; text-align: left;">
+            <h3 style="margin-bottom: 8px; text-align: center;">⚙️ Supabase Setup</h3>
+            <p style="font-size: 12px; margin-bottom: 16px; text-align: center; color: var(--text-muted);">DonkeyChat is now serverless! Enter your free tier Supabase credentials to connect instantly.</p>
+            
+            <div class="input-group" style="margin-bottom: 12px;">
+                <label style="font-size: 11px; margin-bottom: 4px;">Supabase URL</label>
+                <input type="text" id="dbUrlInput" placeholder="https://xxxxxx.supabase.co" style="padding: 10px; font-size: 13px; width: 100%; background: var(--bg-color); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text-main);">
+            </div>
+            <div class="input-group" style="margin-bottom: 20px;">
+                <label style="font-size: 11px; margin-bottom: 4px;">Anon API Key</label>
+                <input type="password" id="dbKeyInput" placeholder="eyJhbGciOi..." style="padding: 10px; font-size: 13px; width: 100%; background: var(--bg-color); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text-main);">
+            </div>
+            
+            <div class="custom-prompt-actions" style="display: flex; gap: 10px;">
+                <button class="btn-primary" onclick="saveSupabaseConfig()" style="width: 100%; padding: 12px; border-radius: var(--radius-md);">Save & Connect</button>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 14px; text-align: center; line-height: 1.4;">
+                Get these from your project dashboard under <br><strong>Project Settings ➔ API</strong>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ════════════════════════════════════════════════════════════
+        //  CONFIG
+        // ════════════════════════════════════════════════════════════
+        // Supabase configuration - Replace with your own project credentials from supabase.com dashboard!
+        const DEFAULT_SUPABASE_URL = 'https://pmgogmoqnqxjnfmmiqfk.supabase.co';
+        const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtZ29nbW9xbnF4am5mbW1pcWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyODE5MzUsImV4cCI6MjA5NDg1NzkzNX0.aw9yvooAjRzOWEiuWGydLo6Yt9e8LmeN91vJLRwT8zc';
+
+        // Check localStorage first, otherwise fallback to default constants
+        let SUPABASE_URL = localStorage.getItem('supabase_url') || DEFAULT_SUPABASE_URL;
+        let SUPABASE_ANON_KEY = localStorage.getItem('supabase_anon_key') || DEFAULT_SUPABASE_ANON_KEY;
+
+        let supabaseClient = null;
+        let realtimeChannel = null;
+        let trafficChannel = null;
+        let discoveryChannel = null;
+        let myIpHash = '';
+
+        const CODE_TTL = 10 * 60 * 1000; // 10 minutes
+        const CHUNK_SIZE_DEFAULT = 64 * 1024;   // 64KB for internet
+        const CHUNK_SIZE_LAN = 256 * 1024;      // 256KB for LAN (max speed)
+        let CHUNK = CHUNK_SIZE_DEFAULT;
+
+        let viaDiscovery = false;
+        let myPeerId = Math.random().toString(36).substr(2, 9);
+        let nickTimeout = null;
+
+        // ICE servers: STUN for IP discovery + TURN for NAT traversal across different networks
+        const ICE_SERVERS = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' },
+            { urls: 'stun:global.stun.twilio.com:3478' },
+            { urls: 'stun:stun.relay.metered.ca:80' },
+            {
+                urls: 'turn:global.relay.metered.ca:80',
+                username: 'e53cc552bfc8e24394669199',
+                credential: 'nHUk+SnIjEYrIWHq'
+            },
+            {
+                urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+                username: 'e53cc552bfc8e24394669199',
+                credential: 'nHUk+SnIjEYrIWHq'
+            },
+            {
+                urls: 'turn:global.relay.metered.ca:443',
+                username: 'e53cc552bfc8e24394669199',
+                credential: 'nHUk+SnIjEYrIWHq'
+            },
+            {
+                urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+                username: 'e53cc552bfc8e24394669199',
+                credential: 'nHUk+SnIjEYrIWHq'
+            },
+        ];
+
+        // ════════════════════════════════════════════════════════════
+        //  STATE
+        // ════════════════════════════════════════════════════════════
+        let myCode = '';
+        let connected = false;
+        let myNick = '';
+        let peerNick = 'Peer';
+        let codeCreatedAt = null;
+        let timerInterval = null;
+        let chatVisible = false;  // tracks if chat screen is already shown
+        let lanMode = false;      // LAN mode active
+        let peerDisconnectTimer = null;
+
+        // WebRTC state
+        let pc = null;           // RTCPeerConnection
+        let dataChannel = null;  // RTCDataChannel for files
+        let isInitiator = false; // true = room creator
+        let rtcConnected = false;
+        let usingRTC = false;    // true = WebRTC data channel active
+        let rtcFallbackTimer = null; // timer to detect RTC failure
+        let iceCandidateQueue = []; // Queue for early ICE candidates
+        let rtcRetryCount = 0;      // Track P2P retry attempts (max 2)
+        let pcGeneration = 0;       // Tracks which pc instance is current (prevents stale callbacks)
+
+        // File transfer state
+        let incomingMeta = null;
+        let incomingChunks = [];
+        let incomingCount = 0;
+        let incomingStream = null;
+        let opfsFileHandle = null;
+        // Pending outgoing transfers waiting for receiver acceptance
+        // fileId → { buf, meta, useRTC }
+        let pendingOutgoing = {};
+        // Speed tracking per transfer
+        // fileId → { startTime, bytesTransferred, aborted }
+        let transferStats = {};
+
+        // Read receipts: msgId → DOM element
+        let sentMsgMap = {};
+        let msgIdCounter = 0;
+
+        // QR scanner state
+        let qrScannerStream = null;
+        let qrScanInterval = null;
+
+        // ════════════════════════════════════════════════════════════
+        //  SUPABASE REALTIME — Serverless Signaling + Discovery + Relay
+        // ════════════════════════════════════════════════════════════
+        async function connectSupabase() {
+            const isPlaceholder = (url, key) => {
+                return !url || !key || url.startsWith('YOUR_') || key.startsWith('YOUR_') || url === 'https://your-project-id.supabase.co';
+            };
+
+            // Setup dynamic trigger to reconfigure
+            const stat = document.getElementById('serverStatus');
+            stat.style.cursor = 'pointer';
+            stat.title = 'Click to configure Supabase credentials';
+            stat.onclick = () => {
+                document.getElementById('dbUrlInput').value = localStorage.getItem('supabase_url') || '';
+                document.getElementById('dbKeyInput').value = localStorage.getItem('supabase_anon_key') || '';
+                document.getElementById('supabaseConfigModal').classList.remove('hidden');
+            };
+
+            if (isPlaceholder(SUPABASE_URL, SUPABASE_ANON_KEY)) {
+                document.getElementById('supabaseConfigModal').classList.remove('hidden');
+                stat.innerHTML = '<div class="status-dot error"></div> Supabase Credentials Required (Click to set)';
+                return;
+            }
+
+            document.getElementById('supabaseConfigModal').classList.add('hidden');
+            stat.innerHTML = '<div class="status-dot"></div> Connecting to Supabase...';
+
+            try {
+                // Initialize Supabase Client
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                
+                // Track global traffic
+                initTrafficTracking();
+
+                // Setup local network discovery
+                await initDiscoveryChannel();
+
+                stat.innerHTML = '<div class="status-dot active"></div> DonkeyChat Serverless Active';
+                document.getElementById('createBtn').disabled = false;
+                document.getElementById('joinBtn').disabled = false;
+
+                // Check deep link
+                checkDeepLink();
+            } catch (err) {
+                console.error("Supabase init error:", err);
+                stat.innerHTML = '<div class="status-dot error"></div> Connection failed. Click to reconfigure.';
+            }
+        }
+
+        function saveSupabaseConfig() {
+            const url = document.getElementById('dbUrlInput').value.trim();
+            const key = document.getElementById('dbKeyInput').value.trim();
+            
+            if (!url || !key) {
+                alert("Please fill in both fields.");
+                return;
+            }
+            
+            localStorage.setItem('supabase_url', url);
+            localStorage.setItem('supabase_anon_key', key);
+            
+            SUPABASE_URL = url;
+            SUPABASE_ANON_KEY = key;
+            
+            connectSupabase();
+        }
+
+        function initTrafficTracking() {
+            try {
+                if (trafficChannel) trafficChannel.unsubscribe();
+                
+                trafficChannel = supabaseClient.channel('global_traffic', {
+                    config: { presence: { key: myPeerId } }
+                });
+                
+                trafficChannel.on('presence', { event: 'sync' }, () => {
+                    const state = trafficChannel.presenceState();
+                    const count = Object.keys(state).length;
+                    const badge = document.getElementById('trafficBadge');
+                    const countEl = document.getElementById('trafficCount');
+                    if (badge && countEl) {
+                        badge.style.display = 'inline-flex';
+                        countEl.textContent = count;
+                    }
+                });
+                
+                trafficChannel.subscribe(async (status) => {
+                    if (status === 'SUBSCRIBED') {
+                        await trafficChannel.track({ online_at: Date.now() });
+                    }
+                });
+            } catch (e) {
+                console.warn("Traffic tracking initialization failed:", e);
+            }
+        }
+
+        async function initDiscoveryChannel() {
+            try {
+                let publicIp = '127.0.0.1';
+                try {
+                    const res = await fetch('https://api64.ipify.org?format=json');
+                    const data = await res.json();
+                    publicIp = data.ip;
+                } catch (ipErr) {
+                    console.warn("Failed to retrieve public IP, utilizing fallback:", ipErr);
+                    publicIp = 'fallback-ip';
+                }
+
+                let myIp = publicIp;
+                if (myIp.includes(':')) {
+                    const parts = myIp.split(':');
+                    if (parts.length > 4) myIp = parts.slice(0, 4).join(':') + '::/64';
+                }
+                
+                myIpHash = await sha256(myIp);
+                onNickInput();
+            } catch (e) {
+                console.error("Discovery setup failed:", e);
+            }
+        }
+
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function onNickInput() {
+            clearTimeout(nickTimeout);
+            nickTimeout = setTimeout(async () => {
+                const nick = getNicknameSilent();
+                if (!nick || !supabaseClient || !myIpHash) return;
+
+                if (discoveryChannel) discoveryChannel.unsubscribe();
+
+                discoveryChannel = supabaseClient.channel('discovery_' + myIpHash, {
+                    config: {
+                        broadcast: { self: false },
+                        presence: { key: myPeerId }
+                    }
+                });
+
+                discoveryChannel
+                    .on('presence', { event: 'sync' }, () => {
+                        const state = discoveryChannel.presenceState();
+                        const peersList = [];
+                        for (const id in state) {
+                            if (id !== myPeerId) {
+                                const presence = state[id][0];
+                                if (presence) {
+                                    peersList.push({
+                                        id,
+                                        nick: presence.nick,
+                                        os: presence.os
+                                    });
+                                }
+                            }
+                        }
+                        renderPeers(peersList);
+                    })
+                    .on('broadcast', { event: 'discovery' }, ({ payload }) => {
+                        if (payload && payload.target === myPeerId) {
+                            if (payload.type === 'request_connect') {
+                                handleDiscoveryRequest(payload.from, payload.nick);
+                            } else if (payload.type === 'accept_connect') {
+                                finishDiscoveryConnect(payload.code, true);
+                            } else if (payload.type === 'decline_connect') {
+                                setJoinStatus('Connection declined by peer.', 'error');
+                                sysMsg('Connection declined by peer.');
+                            }
+                        }
+                    });
+
+                discoveryChannel.subscribe(async (status) => {
+                    if (status === 'SUBSCRIBED') {
+                        await discoveryChannel.track({ nick: nick, os: getOS() });
+                    }
+                });
+            }, 600);
+        }
+
+        function requestDiscoveryConnect(targetId) {
+            if (!getNickname()) return;
+            setJoinStatus('Sending connection request...', 'loading');
+            discoveryChannel.send({
+                type: 'broadcast',
+                event: 'discovery',
+                payload: {
+                    type: 'request_connect',
+                    from: myPeerId,
+                    target: targetId,
+                    nick: myNick
+                }
+            });
+        }
+
+        async function handleDiscoveryRequest(fromId, nick) {
+            const myNickSync = getNicknameSilent();
+            if (!myNickSync) return;
+
+            const accepted = await showCustomPrompt('Connection Request', `User ${nick} wants to connect with you via local network.`);
+            if (accepted) {
+                const randomCode = String(Math.floor(100000 + Math.random() * 900000));
+                discoveryChannel.send({
+                    type: 'broadcast',
+                    event: 'discovery',
+                    payload: {
+                        type: 'accept_connect',
+                        from: myPeerId,
+                        target: fromId,
+                        code: randomCode
+                    }
+                });
+                finishDiscoveryConnect(randomCode, false);
+            } else {
+                discoveryChannel.send({
+                    type: 'broadcast',
+                    event: 'discovery',
+                    payload: {
+                        type: 'decline_connect',
+                        from: myPeerId,
+                        target: fromId
+                    }
+                });
+            }
+        }
+
+        function finishDiscoveryConnect(code, initiator) {
+            viaDiscovery = true;
+            myCode = code;
+            isInitiator = initiator;
+
+            document.getElementById('setupScreen').classList.add('hidden');
+            document.getElementById('chatScreen').style.display = 'flex';
+            if (timerInterval) clearInterval(timerInterval);
+
+            joinRoomChannel(code);
+        }
+
+        async function joinRoomChannel(code) {
+            connected = true;
+            myCode = code;
+
+            if (realtimeChannel) realtimeChannel.unsubscribe();
+
+            realtimeChannel = supabaseClient.channel('room_' + code, {
+                config: {
+                    broadcast: { self: false },
+                    presence: { key: myPeerId }
+                }
+            });
+
+            realtimeChannel
+                .on('presence', { event: 'sync' }, () => {
+                    const state = realtimeChannel.presenceState();
+                    const peerIds = Object.keys(state);
+
+                    // Capacity Enforcer
+                    if (peerIds.length > 2) {
+                        sysMsg("Room full. Disconnecting...");
+                        disconnect();
+                        return;
+                    }
+
+                    const otherPeerId = peerIds.find(id => id !== myPeerId);
+                    if (otherPeerId) {
+                        if (peerDisconnectTimer) {
+                            clearTimeout(peerDisconnectTimer);
+                            peerDisconnectTimer = null;
+                            sysMsg('Peer reconnected successfully.');
+                        }
+
+                        const presenceInfo = state[otherPeerId][0];
+                        if (presenceInfo && presenceInfo.nick) {
+                            peerNick = presenceInfo.nick;
+                        }
+
+                        if (!chatVisible) {
+                            chatVisible = true;
+                            showChat();
+                            enableChat(true);
+                            updateModeBadge('connecting');
+                            sysMsg(`Session secured. ${esc(peerNick)} has joined.`);
+                            
+                            if (pc) {
+                                pc.onicecandidate = null;
+                                pc.onconnectionstatechange = null;
+                                pc.ondatachannel = null;
+                                pc.close();
+                                pc = null;
+                            }
+                            startWebRTC(isInitiator);
+                        }
+                    } else {
+                        if (chatVisible && !peerDisconnectTimer) {
+                            enableChat(false);
+                            updateModeBadge('connecting');
+                            document.getElementById('chatSubtext').innerHTML = `⏳ Waiting for ${esc(peerNick)} to reconnect (30s)...`;
+                            sysMsg('Peer disconnected. Waiting for reconnection...');
+
+                            peerDisconnectTimer = setTimeout(() => {
+                                connected = false;
+                                rtcConnected = false;
+                                usingRTC = false;
+                                sysMsg('Peer connection lost permanently.');
+                                document.getElementById('chatSubtext').innerHTML = '🔴 Session Terminated';
+                                updateModeBadge('disconnected');
+                            }, 30000);
+                        }
+                    }
+                })
+                .on('broadcast', { event: 'relay' }, ({ payload }) => {
+                    onRelayData(payload);
+                });
+
+            realtimeChannel.subscribe(async (status) => {
+                if (status === 'SUBSCRIBED') {
+                    await realtimeChannel.track({ nick: myNick, os: getOS() });
+                    
+                    if (!isInitiator) {
+                        setTimeout(() => {
+                            if (realtimeChannel) {
+                                const state = realtimeChannel.presenceState();
+                                const peerIds = Object.keys(state);
+                                const other = peerIds.find(id => id !== myPeerId);
+                                if (!other) {
+                                    setJoinStatus('Room not found or expired.', 'error');
+                                    disconnect();
+                                }
+                            }
+                        }, 2000);
+                    }
+                }
+            });
+        }
+
+        function onRelayData(data) {
+            if (!data) return;
+            switch (data.kind) {
+                // ── Chat & identity ──
+                case 'chat':
+                    addMsg(data.text, 'received', peerNick, data.msgId);
+                    relay({ kind: 'read_receipt', msgId: data.msgId });
+                    break;
+                case 'read_receipt':
+                    markSeen(data.msgId);
+                    break;
+
+                // ── WebRTC Signaling ──
+                case 'rtc_offer': handleOffer(data.sdp); break;
+                case 'rtc_answer': handleAnswer(data.sdp); break;
+                case 'rtc_ice': handleIce(data.candidate); break;
+
+                // ── File handshake (signaling only — actual data goes via WebRTC DataChannel) ──
+                case 'file-request':
+                    showFileRequest(data);
+                    break;
+                case 'file-accepted':
+                    startActualTransfer(data.fileId);
+                    break;
+                case 'file-declined':
+                    onFileDeclined(data.fileId);
+                    break;
+                case 'file-cancelled':
+                    onFileCancelled(data.fileId, peerNick);
+                    break;
+
+                // FIX A: file-meta and file-chunk are INTENTIONALLY NOT handled here.
+                // File data must ONLY travel via WebRTC DataChannel (onDataChannelMsg).
+                // Routing file chunks through Supabase Broadcast would:
+                //   1. Hit the 256KB per-message hard limit
+                //   2. Consume the 100 msg/sec rate limit rapidly
+                //   3. Count against the 2M messages/month free tier quota
+                // If WebRTC is unavailable, file transfer is blocked (by design).
+                case 'file-meta':
+                case 'file-chunk':
+                    console.warn('Received file data over Supabase relay — this should not happen. File transfers require WebRTC P2P.');
+                    break;
+            }
+        }
+
+        function relay(data) {
+            if (realtimeChannel) {
+                realtimeChannel.send({
+                    type: 'broadcast',
+                    event: 'relay',
+                    payload: data
+                });
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  WebRTC — P2P Connection (background upgrade for files)
+        // ════════════════════════════════════════════════════════════
+        function startWebRTC(initiator) {
+            iceCandidateQueue = []; // Clear any stale candidates on restart
+            isInitiator = initiator;
+            updateModeBadge('connecting'); // Show connecting state while negotiating
+
+            // Set a timeout — if WebRTC doesn't connect in 20s, stay in relay mode
+            // 20s is needed for TURN/TLS on port 443 to complete TLS handshake + ICE on CGNAT networks
+            if (rtcFallbackTimer) clearTimeout(rtcFallbackTimer);
+            rtcFallbackTimer = setTimeout(() => {
+                if (!usingRTC) {
+                    updateModeBadge('relay');
+                    sysMsg('ℹ️ P2P not available on this network — using Supabase relay for signaling. Files require WebRTC.');
+                    console.log('WebRTC timed out — staying in relay mode');
+                }
+            }, 20000);
+
+            // Increment generation so stale callbacks from old pc instances are ignored
+            const thisGeneration = ++pcGeneration;
+
+            try {
+                pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+            } catch (e) {
+                console.warn('WebRTC not supported:', e);
+                updateModeBadge('relay');
+                return;
+            }
+
+            pc.onicecandidate = (e) => {
+                if (pcGeneration !== thisGeneration) return; // Stale pc, ignore
+                if (e.candidate) {
+                    relay({ kind: 'rtc_ice', candidate: e.candidate });
+
+                    // FIX C: Extract local LAN IP from host candidates for secondary discovery
+                    // This catches same-subnet peers even when ipify.org is slow or returns same public IP
+                    const cand = e.candidate.candidate || '';
+                    const lanMatch = cand.match(/\b(10\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+|192\.168\.\d+)\b/);
+                    if (lanMatch && !window._lanDiscoveryRegistered) {
+                        window._lanDiscoveryRegistered = true;
+                        const lanSubnet = lanMatch[0].split('.').slice(0, 3).join('.');
+                        sha256('lan_' + lanSubnet).then(lanHash => {
+                            if (supabaseClient && myIpHash && lanHash !== myIpHash) {
+                                const lanDisc = supabaseClient.channel('discovery_' + lanHash, {
+                                    config: { broadcast: { self: false }, presence: { key: myPeerId } }
+                                });
+                                lanDisc.on('presence', { event: 'sync' }, () => {
+                                    const s = lanDisc.presenceState();
+                                    const extras = [];
+                                    for (const id in s) {
+                                        if (id !== myPeerId) {
+                                            const pr = s[id][0];
+                                            if (pr) extras.push({ id, nick: pr.nick, os: pr.os });
+                                        }
+                                    }
+                                    if (extras.length > 0) renderPeers(extras);
+                                })
+                                .on('broadcast', { event: 'discovery' }, ({ payload }) => {
+                                    if (payload && payload.target === myPeerId) {
+                                        if (payload.type === 'request_connect') handleDiscoveryRequest(payload.from, payload.nick);
+                                        else if (payload.type === 'accept_connect') finishDiscoveryConnect(payload.code, true);
+                                        else if (payload.type === 'decline_connect') { setJoinStatus('Connection declined by peer.', 'error'); sysMsg('Connection declined by peer.'); }
+                                    }
+                                });
+                                lanDisc.subscribe(async (status) => {
+                                    if (status === 'SUBSCRIBED') {
+                                        const nick = getNicknameSilent();
+                                        if (nick) await lanDisc.track({ nick, os: getOS() });
+                                    }
+                                });
+                                console.log('LAN secondary discovery channel registered for subnet:', lanSubnet);
+                            }
+                        });
+                    }
+                } else {
+                    // null candidate = ICE gathering complete
+                    window._lanDiscoveryRegistered = false;
+                }
+            };
+
+            // Function to check if the connection is truly local (host/prflx candidates)
+            const checkLocalPath = async (pcRef) => {
+                try {
+                    const stats = await pcRef.getStats();
+                    let isLocal = false;
+                    stats.forEach(report => {
+                        if (report.type === 'transport') {
+                            const pair = stats.get(report.selectedCandidatePairId);
+                            if (pair) {
+                                const local = stats.get(pair.localCandidateId);
+                                const remote = stats.get(pair.remoteCandidateId);
+                                if (local && remote) {
+                                    const allowed = ['host', 'prflx'];
+                                    if (allowed.includes(local.candidateType) && allowed.includes(remote.candidateType)) {
+                                        isLocal = true;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    return isLocal;
+                } catch (e) { return false; }
+            };
+
+            pc.onconnectionstatechange = () => {
+                // CRITICAL: Ignore events from stale/old pc instances
+                if (pcGeneration !== thisGeneration) return;
+                if (!pc) return;
+
+                const state = pc.connectionState;
+                console.log('RTC connection state:', state, '(gen:', thisGeneration, ')');
+                if (state === 'connected') {
+                    clearTimeout(rtcFallbackTimer);
+                    rtcConnected = true;
+                    usingRTC = true;
+                    rtcRetryCount = 0;
+
+                    setTimeout(async () => {
+                        if (!pc || pc.connectionState !== 'connected') return;
+                        if (pcGeneration !== thisGeneration) return;
+                        const trulyLocal = await checkLocalPath(pc);
+                        if (trulyLocal) {
+                            CHUNK = CHUNK_SIZE_LAN;
+                            if (!document.getElementById('setupScreen').classList.contains('hidden')) {
+                                document.getElementById('setupScreen').classList.add('hidden');
+                                document.getElementById('chatScreen').style.display = 'flex';
+                            }
+                            if (!viaDiscovery) {
+                                document.getElementById('chatSubtext').innerHTML = `🟢 Connected to <strong>${esc(peerNick)}</strong>`;
+                                sysMsg('⚡ Upgraded to LAN Direct mode automatically.');
+                            }
+                            updateModeBadge('lan_p2p');
+                            sysMsg('⚡ WebRTC LAN Direct active — files transfer at full local Wi-Fi speed offline.');
+                        } else {
+                            CHUNK = CHUNK_SIZE_DEFAULT;
+                            updateModeBadge('p2p');
+                            sysMsg('🔒 WebRTC P2P (Internet) active.');
+                        }
+                    }, 500);
+
+                } else if (state === 'failed' || state === 'closed') {
+                    rtcConnected = false;
+                    usingRTC = false;
+                    updateModeBadge('relay');
+
+                    Object.keys(pendingOutgoing).forEach(fileId => {
+                        if (pendingOutgoing[fileId].useRTC) {
+                            onFileError(fileId, "P2P Connection interrupted. Please start transfer again.");
+                        }
+                    });
+                    if (incomingMeta && incomingMeta.useRTC) {
+                        onFileError(incomingMeta.id, "P2P Connection interrupted.");
+                    }
+
+                    rtcRetryCount++;
+
+                    if (connected && isInitiator && rtcRetryCount <= 2) {
+                        if (rtcRetryCount === 1) {
+                            sysMsg('ℹ️ P2P unavailable — using relay. Retrying P2P in background...');
+                        }
+                        setTimeout(() => {
+                            if (connected && !rtcConnected) {
+                                startWebRTC(true);
+                            }
+                        }, 5000);
+                    } else if (rtcRetryCount > 2) {
+                        console.log('P2P retry limit reached, staying on relay.');
+                    }
+                }
+            };
+
+            pc.ondatachannel = (e) => {
+                if (pcGeneration !== thisGeneration) return;
+                setupDataChannel(e.channel);
+            };
+
+            if (initiator) {
+                const dc = pc.createDataChannel('files', { ordered: true });
+                setupDataChannel(dc);
+                pc.createOffer()
+                    .then(offer => pc.setLocalDescription(offer))
+                    .then(() => relay({ kind: 'rtc_offer', sdp: pc.localDescription }))
+                    .catch(e => console.warn('RTC offer failed:', e));
+            }
+            // Joiner waits for offer via onRelayData → handleOffer
+        }
+
+        function setupDataChannel(dc) {
+            dataChannel = dc;
+            dc.binaryType = 'arraybuffer';
+
+            dc.onopen = () => {
+                console.log('DataChannel open — WebRTC P2P ready for files');
+                // Note: nick exchange already done via WebSocket, no need to repeat
+            };
+
+            dc.onmessage = (e) => {
+                onDataChannelMsg(e.data);
+            };
+
+            dc.onerror = (e) => {
+                console.warn('DataChannel error:', e);
+                usingRTC = false;
+            };
+
+            dc.onclose = () => {
+                console.log('DataChannel closed');
+                usingRTC = false;
+            };
+        }
+
+        async function handleOffer(sdp) {
+            // Only create a new pc if we don't have one yet.
+            // peer_joined already called startWebRTC(false) which created a fresh pc waiting for an offer.
+            // Destroying it here was the bug — it killed the pc the initiator's offer was meant for.
+            if (!pc) {
+                startWebRTC(false);
+            }
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                // Process any ICE candidates that arrived while setting remote description
+                while (iceCandidateQueue.length > 0) {
+                    const candidate = iceCandidateQueue.shift();
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn('Queued ICE error:', e));
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                relay({ kind: 'rtc_answer', sdp: answer });
+            } catch (e) {
+                console.warn('Handling offer failed:', e);
+            }
+        }
+
+        async function handleAnswer(sdp) {
+            // FIX D: Guard against stale pc on rapid reconnects
+            if (!pc || pc.signalingState === 'closed') {
+                console.warn('handleAnswer: pc not ready, ignoring stale answer.');
+                return;
+            }
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                // Drain the ICE queue now that remote description is set
+                while (iceCandidateQueue.length > 0) {
+                    const candidate = iceCandidateQueue.shift();
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn('Queued ICE error:', e));
+                }
+            } catch (e) {
+                console.warn('Handling answer failed:', e);
+            }
+        }
+
+        async function handleIce(candidate) {
+            try {
+                if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
+                    // Queue candidate if remote description is not set yet
+                    iceCandidateQueue.push(candidate);
+                } else {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+            } catch (e) { console.warn('ICE error:', e); }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  DataChannel Messages (P2P file transfer)
+        // ════════════════════════════════════════════════════════════
+        function onDataChannelMsg(data) {
+            if (typeof data === 'string') {
+                let msg;
+                try { msg = JSON.parse(data); } catch { return; }
+                if (msg.kind === 'file-meta') {
+                    incomingMeta = msg;
+                    incomingChunks = new Array(msg.totalChunks);
+                    incomingCount = 0;
+                    transferStats[msg.id] = { startTime: Date.now(), bytesTransferred: 0 };
+                    appendFileProgress(msg, peerNick, 'p2p');
+                }
+            } else {
+                // Binary chunk via DataChannel - Store the raw ArrayBuffer without wrapping it in Uint8Array
+                if (!incomingMeta) return;
+
+                if (incomingStream) {
+                    incomingStream.write(data).catch(e => console.error("Stream write error:", e));
+                    incomingCount++;
+                } else {
+                    incomingChunks[incomingCount] = data;
+                    incomingCount++;
+                }
+
+                if (incomingCount % 10 === 0 || incomingCount === incomingMeta.totalChunks) {
+                    updateSpeedAndProgress(incomingMeta.id, incomingCount, incomingMeta.totalChunks, incomingMeta.size);
+                }
+                if (incomingCount === incomingMeta.totalChunks) assembleFile();
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  ROOM & SETUP
+        // ════════════════════════════════════════════════════════════
+        function getNickname() {
+            const nick = document.getElementById('nickInput').value.trim();
+            if (!nick) {
+                const inp = document.getElementById('nickInput');
+                inp.style.borderColor = 'var(--brand-red)';
+                inp.focus();
+                setTimeout(() => inp.style.borderColor = 'var(--border)', 1200);
+                return null;
+            }
+            return nick;
+        }
+
+        function createRoom() {
+            myNick = getNickname();
+            if (!myNick) return;
+
+            finishCreateRoom();
+        }
+
+        function finishCreateRoom() {
+            myCode = String(Math.floor(100000 + Math.random() * 900000));
+            isInitiator = true;
+            joinRoomChannel(myCode);
+            document.getElementById('codeDisplay').textContent = myCode;
+            document.getElementById('codeBox').classList.remove('hidden');
+            document.getElementById('createBtn').disabled = true;
+            document.getElementById('joinBtn').disabled = true;
+            document.getElementById('nickInput').disabled = true;
+
+            // Generate QR code with join URL
+            generateJoinQR(myCode);
+
+            // Start 10-minute countdown
+            codeCreatedAt = Date.now();
+            startCodeTimer();
+        }
+
+        function startCodeTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                const elapsed = Date.now() - codeCreatedAt;
+                const remaining = CODE_TTL - elapsed;
+                if (remaining <= 0) {
+                    clearInterval(timerInterval);
+                    document.getElementById('codeTimer').textContent = '⏱ Expired';
+                    document.getElementById('codeTimer').className = 'code-timer critical';
+                    sysMsg('Room code expired. Reload to create a new room.');
+                    return;
+                }
+                const mins = Math.floor(remaining / 60000);
+                const secs = Math.floor((remaining % 60000) / 1000);
+                const timerEl = document.getElementById('codeTimer');
+                timerEl.textContent = `⏱ Expires in ${mins}:${String(secs).padStart(2, '0')}`;
+                if (remaining < 60000) timerEl.className = 'code-timer critical';
+                else if (remaining < 3 * 60000) timerEl.className = 'code-timer urgent';
+                else timerEl.className = 'code-timer';
+            }, 1000);
+        }
+
+        function toggleJoin() {
+            const sec = document.getElementById('joinSection');
+            sec.classList.toggle('hidden');
+            if (!sec.classList.contains('hidden')) document.getElementById('joinInput').focus();
+        }
+
+        function joinRoom() {
+            myNick = getNickname();
+            if (!myNick) return;
+            const code = document.getElementById('joinInput').value.trim();
+            if (code.length !== 6) { setJoinStatus('Passcode must be 6 digits.', 'error'); return; }
+            isInitiator = false;
+            document.getElementById('nickInput').disabled = true;
+            setJoinStatus('Connecting...', 'loading');
+
+            joinRoomChannel(code);
+        }
+
+        function setJoinStatus(text, type) {
+            const el = document.getElementById('joinStatus');
+            el.innerHTML = `<div class="status-text" style="color:${type === 'error' ? 'var(--brand-red)' : 'var(--text-main)'}">
+        <div class="status-dot ${type === 'error' ? 'error' : 'active'}"></div> ${text}</div>`;
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  CHAT UI
+        // ════════════════════════════════════════════════════════════
+        function showChat() {
+            document.getElementById('setupScreen').classList.add('hidden');
+            document.getElementById('chatScreen').style.display = 'flex';
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        function enableChat(on) {
+            document.getElementById('msgInput').disabled = !on;
+            document.getElementById('sendBtn').disabled = !on;
+            document.getElementById('attachBtn').disabled = !on;
+            document.getElementById('imgBtn').disabled = !on;
+        }
+
+        function updateModeBadge(mode) {
+            const badge = document.getElementById('connectionModeBadge');
+            if (mode === 'lan_p2p') {
+                badge.className = 'mode-badge lan';
+                badge.textContent = '⚡ LAN Direct';
+            } else if (mode === 'p2p' || mode === 'rtc') {
+                badge.className = 'mode-badge';
+                badge.textContent = '🔒 P2P (Internet)';
+            } else if (mode === 'relay') {
+                badge.className = 'mode-badge relay';
+                badge.textContent = '🔁 Relay Mode';
+            } else if (mode === 'connecting') {
+                badge.className = 'mode-badge connecting';
+                badge.textContent = '⚡ Connecting...';
+            } else {
+                badge.className = 'mode-badge relay';
+                badge.textContent = '🔴 Disconnected';
+            }
+        }
+
+        function sendMessage() {
+            const inp = document.getElementById('msgInput');
+            const text = inp.value.trim();
+            if (!text || !connected) return;
+
+            const msgId = 'msg_' + (++msgIdCounter) + '_' + Date.now();
+            relay({ kind: 'chat', text, msgId });
+            const el = addMsg(text, 'sent', myNick, msgId);
+            sentMsgMap[msgId] = el;
+            inp.value = '';
+            inp.style.height = 'auto'; // reset height
+        }
+
+        function onKey(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function addMsg(text, side, senderName, msgId) {
+            const wrap = document.createElement('div');
+            wrap.className = `msg-wrapper ${side}`;
+
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+            let html = '';
+            if (senderName) html += `<div class="msg-nick">${esc(senderName)}</div>`;
+            html += `<div class="msg">${esc(text)}</div>`;
+            html += `<div class="msg-meta">
+        <span class="msg-time">${timeStr}</span>
+        ${side === 'sent' ? `<span class="read-tick" id="tick_${msgId}">✓</span>` : ''}
+    </div>`;
+
+            wrap.innerHTML = html;
+            appendToChat(wrap);
+            return wrap;
+        }
+
+        function markSeen(msgId) {
+            const tick = document.getElementById('tick_' + msgId);
+            if (tick) {
+                tick.textContent = '✓✓';
+                tick.classList.add('seen');
+            }
+        }
+
+        function sysMsg(text) {
+            const d = document.createElement('div');
+            d.className = 'msg system';
+            d.textContent = text;
+            appendToChat(d);
+        }
+
+        function appendToChat(el) {
+            const box = document.getElementById('chatMessages');
+            box.appendChild(el);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  FILE TRANSFER
+        // ════════════════════════════════════════════════════════════
+        function pickFile() { document.getElementById('fileInput').click(); }
+
+        function sendFile() {
+            const inp = document.getElementById('fileInput');
+            const file = inp.files[0];
+            if (file) processFileToSend(file);
+            inp.value = '';
+        }
+
+        async function processFileToSend(file) {
+            if (!connected) return;
+
+            // FIX: Don't use file.arrayBuffer() directly. It crashes Chrome for files > 2GB limits.
+            // Calculate chunks using file.size and stream it via slice() later.
+            const totalChunks = Math.ceil(file.size / CHUNK);
+            const fileId = 'f' + Date.now();
+            const useRTC = usingRTC && dataChannel && dataChannel.readyState === 'open';
+
+            // File transfers REQUIRE WebRTC DataChannel — Supabase relay is signaling-only
+            if (!useRTC) {
+                sysMsg(`❌ Cannot send "${esc(file.name)}": WebRTC P2P is not yet connected. Please wait for the "🔒 P2P" or "⚡ LAN Direct" badge, then try again.`);
+                return;
+            }
+
+            // Store pending transfer (buf is null, we stream from 'file' later)
+            pendingOutgoing[fileId] = { buf: null, totalChunks, file, useRTC };
+
+            // Send file-request (metadata only, no data yet)
+            const req = { kind: 'file-request', fileId, name: file.name, size: file.size, mime: file.type, totalChunks, useRTC };
+            relay(req);
+
+            // Show sender's "waiting" bubble
+            const wrap = document.createElement('div');
+            wrap.className = 'msg-wrapper sent';
+            wrap.id = fileId;
+            wrap.innerHTML = `
+                <div class="msg-nick">${esc(myNick)}</div>
+                <div class="msg file-msg">
+                    <div class="file-msg-header">
+                        <div class="file-icon">📄</div>
+                        <div class="file-info">
+                            <div class="file-name">${esc(file.name)}</div>
+                            <div class="file-meta" id="meta-${fileId}">${fmtSize(file.size)} · ⏳ Waiting for acceptance...</div>
+                            <div class="transfer-mode">${useRTC ? '🔒 P2P Direct' : '🔁 Via Relay'}</div>
+                        </div>
+                    </div>
+                </div>`;
+            appendToChat(wrap);
+        }
+
+        // Called when receiver accepts — now actually send the data
+        async function startActualTransfer(fileId) {
+            const pending = pendingOutgoing[fileId];
+            if (!pending) return;
+            const { buf, totalChunks, file, useRTC } = pending;
+
+            // Update sender bubble to show progress
+            const metaEl = document.getElementById('meta-' + fileId);
+            if (metaEl) metaEl.textContent = `${fmtSize(file.size)} · Sending...`;
+
+            // Add progress bar to sender bubble
+            const msgDiv = document.querySelector(`#${fileId} .msg`);
+            const isImage = msgDiv && msgDiv.classList.contains('image-msg');
+
+            if (msgDiv) {
+                if (isImage) {
+                    msgDiv.insertAdjacentHTML('beforeend',
+                        `<div class="progress-wrap" style="margin: 0 4px 4px 4px;"><div class="progress-bar" id="bar-${fileId}"></div></div>
+                         <button class="btn-decline" style="margin: 0 4px 4px 4px; width: calc(100% - 8px); padding: 4px; font-size:11px;" onclick="cancelTransfer('${fileId}')">Cancel</button>`);
+                } else {
+                    msgDiv.insertAdjacentHTML('beforeend',
+                        `<div class="progress-wrap"><div class="progress-bar" id="bar-${fileId}"></div></div>
+                         <div class="progress-stats"><span id="pct-${fileId}">0%</span><span id="spd-${fileId}"></span></div>
+                         <button class="btn-decline" style="margin-top:10px; width:100%;" onclick="cancelTransfer('${fileId}')">Cancel Transfer</button>`);
+                }
+            }
+
+            transferStats[fileId] = { startTime: Date.now(), bytesTransferred: 0, aborted: false };
+
+            try {
+                if (useRTC && dataChannel && dataChannel.readyState === 'open') {
+                    // Send file-meta control message via DataChannel
+                    dataChannel.send(JSON.stringify({
+                        kind: 'file-meta', id: fileId, name: file.name,
+                        size: file.size, mime: file.type, totalChunks
+                    }));
+                    for (let i = 0; i < totalChunks; i++) {
+                        if (transferStats[fileId]?.aborted) return; // Stop if cancelled
+                        // Buffer threshold mapped to 4MB for high-speed LAN transfers
+                        while (dataChannel.bufferedAmount > 4 * 1024 * 1024) {
+                            if (transferStats[fileId]?.aborted) return;
+                            await sleep(5);
+                        }
+
+                        // SLICE incrementally from file blob to avert >2GB RAM crashes
+                        const chunkBlob = file.slice(i * CHUNK, (i + 1) * CHUNK);
+                        const sliceBuf = await chunkBlob.arrayBuffer();
+
+                        dataChannel.send(sliceBuf);
+                        transferStats[fileId].bytesTransferred += sliceBuf.byteLength;
+
+                        if (i % 10 === 0 || i === totalChunks - 1) {
+                            updateSpeedAndProgress(fileId, i + 1, totalChunks, file.size);
+                        }
+                    }
+                } else {
+                    // WS relay fallback
+                    relay({ kind: 'file-meta', id: fileId, name: file.name, size: file.size, mime: file.type, totalChunks });
+                    for (let i = 0; i < totalChunks; i++) {
+                        if (transferStats[fileId]?.aborted) return; // Stop if cancelled
+
+                        const chunkBlob = file.slice(i * CHUNK, (i + 1) * CHUNK);
+                        const sliceBuf = await chunkBlob.arrayBuffer();
+
+                        relay({ kind: 'file-chunk', idx: i, bytes: Array.from(new Uint8Array(sliceBuf)) });
+                        transferStats[fileId].bytesTransferred += sliceBuf.byteLength;
+
+                        if (i % 10 === 0 || i === totalChunks - 1) {
+                            updateSpeedAndProgress(fileId, i + 1, totalChunks, file.size);
+                        }
+                        if (i % 4 === 0) await sleep(0); // Kept yield slightly for relay
+                    }
+                }
+            } catch (err) {
+                console.error("Transfer error:", err);
+                onFileError(fileId, err.message || "Connection interrupted during transfer.");
+                return;
+            }
+
+            // Remove cancel button & progress bars
+            const cancelBtn = msgDiv?.querySelector('.btn-decline');
+            if (cancelBtn) cancelBtn.remove();
+            const pWrap = msgDiv?.querySelector('.progress-wrap');
+            if (pWrap) pWrap.remove();
+            const pStats = msgDiv?.querySelector('.progress-stats');
+            if (pStats) pStats.remove();
+
+            // Mark done
+            if (!transferStats[fileId]?.aborted) {
+                const metaEl2 = document.getElementById('meta-' + fileId);
+                if (metaEl2) metaEl2.textContent = `${fmtSize(file.size)} · Seen`;
+
+                // If it was an image, update sender preview (no download button needed for sender)
+                const senderImg = document.querySelector(`#${fileId} .chat-image`);
+                if (senderImg) {
+                    senderImg.style.opacity = '1';
+                    senderImg.style.filter = 'none';
+                }
+            }
+
+            delete pendingOutgoing[fileId];
+            delete transferStats[fileId];
+        }
+
+        function onFileDeclined(fileId) {
+            const metaEl = document.getElementById('meta-' + fileId);
+            if (metaEl) metaEl.textContent = fmtSize(pendingOutgoing[fileId]?.file?.size || 0) + ' · ✗ Declined';
+            delete pendingOutgoing[fileId];
+        }
+
+        // Receiver sees this when a file-request arrives
+        function showFileRequest(data) {
+            const wrap = document.createElement('div');
+            wrap.className = 'msg-wrapper received';
+            wrap.id = data.fileId;
+            wrap.innerHTML = `
+                <div class="msg-nick">${esc(peerNick)}</div>
+                <div class="msg file-msg">
+                    <div class="file-msg-header">
+                        <div class="file-icon">📄</div>
+                        <div class="file-info">
+                            <div class="file-name">${esc(data.name)}</div>
+                            <div class="file-meta" id="meta-${data.fileId}">${fmtSize(data.size)} · ${data.useRTC ? '🔒 P2P' : '🔁 Relay'}</div>
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        <button class="btn-accept" onclick="acceptFile('${data.fileId}')">✓ Accept</button>
+                        <button class="btn-decline" onclick="declineFile('${data.fileId}')">✗ Decline</button>
+                    </div>
+                </div>`;
+            appendToChat(wrap);
+        }
+
+        async function acceptFile(fileId) {
+            const wrap = document.getElementById(fileId);
+            const nameEl = wrap ? wrap.querySelector('.file-name') : null;
+            const fileName = nameEl ? nameEl.textContent : 'download';
+
+            let isFSAP = false;
+            try {
+                if (window.showSaveFilePicker) {
+                    const handle = await window.showSaveFilePicker({ suggestedName: fileName });
+                    incomingStream = await handle.createWritable();
+                    isFSAP = true;
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') return; // User cancelled
+                console.warn('FSAP not supported or failed, preparing fallback', err);
+            }
+
+            // OPFS Fallback for preventing RAM crashes on mobile devices
+            if (!isFSAP && navigator.storage && navigator.storage.getDirectory) {
+                try {
+                    const root = await navigator.storage.getDirectory();
+                    opfsFileHandle = await root.getFileHandle(fileId, { create: true });
+                    incomingStream = await opfsFileHandle.createWritable();
+                    sysMsg(`ℹ️ Using Secure Storage (OPFS) to prevent memory crash for large file.`);
+                } catch (e) {
+                    console.warn("OPFS stream creation failed:", e);
+                }
+            }
+
+            if (!incomingStream) {
+                sysMsg(`⚠️ Warning: Direct disk writing unsupported on this browser. File will buffer in RAM.`);
+            }
+
+            relay({ kind: 'file-accepted', fileId });
+            // Replace buttons with progress bar and cancel button
+            const actionsEl = document.querySelector(`#${fileId} .file-actions`);
+            if (actionsEl) {
+                actionsEl.outerHTML = `
+                    <div class="progress-wrap"><div class="progress-bar" id="bar-${fileId}"></div></div>
+                    <div class="progress-stats"><span id="pct-${fileId}">0%</span><span id="spd-${fileId}"></span></div>
+                    <button class="btn-decline" style="margin-top:10px; width:100%;" onclick="cancelTransfer('${fileId}')">Cancel Transfer</button>`;
+            }
+            const metaEl = document.getElementById('meta-' + fileId);
+            if (metaEl) metaEl.textContent = metaEl.textContent.replace(/·.*/, '· Receiving...');
+        }
+
+        function declineFile(fileId) {
+            relay({ kind: 'file-declined', fileId });
+            const wrap = document.getElementById(fileId);
+            if (wrap) {
+                const metaEl = document.getElementById('meta-' + fileId);
+                if (metaEl) metaEl.textContent = metaEl.textContent.replace(/·.*/, '· Declined');
+                const actionsEl = wrap.querySelector('.file-actions');
+                if (actionsEl) actionsEl.remove();
+            }
+        }
+
+        function cancelTransfer(fileId) {
+            // Notify peer
+            relay({ kind: 'file-cancelled', fileId });
+            onFileCancelled(fileId, 'You');
+        }
+
+        async function onFileCancelled(fileId, who) {
+            // Mark internal state as aborted
+            if (transferStats[fileId]) transferStats[fileId].aborted = true;
+
+            const wrap = document.getElementById(fileId);
+            if (wrap) {
+                const metaEl = document.getElementById('meta-' + fileId);
+                if (metaEl) metaEl.textContent = metaEl.textContent.replace(/·.*/, `· 🛑 Cancelled by ${who}`);
+
+                // Remove progress elements
+                const pWrap = wrap.querySelector('.progress-wrap');
+                const pStats = wrap.querySelector('.progress-stats');
+                const btn = wrap.querySelector('.btn-decline');
+                if (pWrap) pWrap.remove();
+                if (pStats) pStats.remove();
+                if (btn) btn.remove();
+            }
+
+            // Clean up transfer states
+            delete pendingOutgoing[fileId];
+            delete transferStats[fileId];
+            if (incomingMeta && incomingMeta.id === fileId) {
+                if (incomingStream) {
+                    try { await incomingStream.abort(); } catch (e) { }
+                    incomingStream = null;
+                }
+                incomingMeta = null;
+                incomingChunks = [];
+                incomingCount = 0;
+            }
+        }
+
+        async function onFileError(fileId, errMsg) {
+            if (transferStats[fileId]) transferStats[fileId].aborted = true;
+
+            const wrap = document.getElementById(fileId);
+            if (wrap) {
+                const metaEl = document.getElementById('meta-' + fileId);
+                if (metaEl) metaEl.textContent = metaEl.textContent.replace(/·.*/, `· ❌ Failed`);
+
+                // Remove progress elements
+                const pWrap = wrap.querySelector('.progress-wrap');
+                const pStats = wrap.querySelector('.progress-stats');
+                const btn = wrap.querySelector('.btn-decline');
+                if (pWrap) pWrap.remove();
+                if (pStats) pStats.remove();
+                if (btn) btn.remove();
+            }
+
+            sysMsg(`❌ Transfer failed: ${errMsg}`);
+
+            // Clean up transfer states
+            delete pendingOutgoing[fileId];
+            delete transferStats[fileId];
+            if (incomingMeta && incomingMeta.id === fileId) {
+                if (incomingStream) {
+                    try { await incomingStream.abort(); } catch (e) { }
+                    incomingStream = null;
+                }
+                incomingMeta = null;
+                incomingChunks = [];
+                incomingCount = 0;
+            }
+        }
+
+        async function assembleFile() {
+            const meta = incomingMeta;
+
+            if (incomingStream) {
+                try {
+                    await incomingStream.close();
+                } catch (e) {
+                    console.error("Error closing stream", e);
+                }
+                incomingStream = null;
+
+                if (opfsFileHandle) {
+                    // Extract from OPFS to generate download link
+                    try {
+                        const blob = await opfsFileHandle.getFile();
+                        const url = URL.createObjectURL(blob);
+                        finalizeFileUI(meta, url, blob.size);
+                    } catch (e) {
+                        console.error("Failed to generate OPFS file URL", e);
+                    }
+                    opfsFileHandle = null;
+                } else {
+                    // FSAP - File already on disk where user selected
+                    const wrap = document.getElementById(meta.id);
+                    if (wrap) {
+                        const msgDiv = wrap.querySelector('.msg');
+                        const statsEl = wrap.querySelector('.progress-stats');
+                        const cancelBtn = wrap.querySelector('.btn-decline');
+                        const progressWrap = wrap.querySelector('.progress-wrap');
+                        if (statsEl) statsEl.remove();
+                        if (cancelBtn) cancelBtn.remove();
+                        if (progressWrap) progressWrap.remove();
+
+                        const metaEl = document.getElementById('meta-' + meta.id);
+                        if (metaEl) metaEl.textContent = `${fmtSize(meta.size)} · ✓ Saved to Disk`;
+                    }
+                }
+
+                delete transferStats[meta.id];
+                incomingMeta = null; incomingChunks = []; incomingCount = 0;
+                return;
+            }
+
+            // Zero-copy Blob creation: Pass the array of ArrayBuffers (or Uint8Arrays from relay) directly to the Blob constructor.
+            // This prevents the browser from allocating a massive contiguous chunk of RAM and manually copying every byte via out.set(),
+            // which saves Gigabytes of memory and prevents mobile garbage collector freezing.
+            const blob = new Blob(incomingChunks, { type: meta.mime });
+            const url = URL.createObjectURL(blob);
+            
+            finalizeFileUI(meta, url, meta.size);
+
+            delete transferStats[meta.id];
+            incomingMeta = null; incomingChunks = []; incomingCount = 0;
+        }
+
+        function finalizeFileUI(meta, url, blobSize) {
+            const isImage = meta.mime && meta.mime.startsWith('image/');
+
+            const wrap = document.getElementById(meta.id);
+            if (wrap) {
+                const msgDiv = wrap.querySelector('.msg');
+                // Remove progress stats and cancel button
+                const statsEl = wrap.querySelector('.progress-stats');
+                const cancelBtn = wrap.querySelector('.btn-decline');
+                const progressWrap = wrap.querySelector('.progress-wrap');
+                if (statsEl) statsEl.remove();
+                if (cancelBtn) cancelBtn.remove();
+                if (progressWrap) progressWrap.remove();
+
+                if (isImage && msgDiv) {
+                    // Replace file card content with inline image
+                    msgDiv.innerHTML = `
+                        <img class="chat-image" src="${url}" alt="${esc(meta.name)}" onclick="viewImage('${url}')">
+                        <div style="display:flex; justify-content:flex-end; padding:2px 4px 2px 0;">
+                            <a href="${url}" download="${esc(meta.name)}" style="color:var(--text-muted); font-size:11px; text-decoration:none; display:flex; gap:4px; align-items:center;">⬇️ Download · ${fmtSize(blobSize)}</a>
+                        </div>`;
+                    msgDiv.classList.remove('file-msg');
+                    msgDiv.classList.add('image-msg');
+                    msgDiv.style.background = 'transparent';
+                    msgDiv.style.padding = '4px';
+                } else {
+                    const metaEl = document.getElementById('meta-' + meta.id);
+                    if (metaEl) metaEl.textContent = `${fmtSize(blobSize)} · ⬇ Tap to Download`;
+                    if (msgDiv) {
+                        msgDiv.style.cursor = 'pointer';
+                        msgDiv.onclick = () => triggerDownload(url, meta.name);
+                    }
+                }
+            }
+        }
+
+        function appendFileProgress(meta, senderName, mode) {
+            // Only called for WS relay chunks that arrive without accept flow
+            // If the card already exists from file-request, simply update it
+            if (document.getElementById(meta.id)) {
+                transferStats[meta.id] = { startTime: Date.now(), bytesTransferred: 0 };
+                return;
+            }
+
+            const wrap = document.createElement('div');
+            wrap.className = 'msg-wrapper received';
+            wrap.id = meta.id;
+            wrap.innerHTML = `
+                <div class="msg-nick">${esc(senderName)}</div>
+                <div class="msg file-msg" style="flex-direction:column;align-items:stretch;">
+                    <div style="display:flex;gap:12px;align-items:flex-start;">
+                        <div class="file-icon">📄</div>
+                        <div class="file-info">
+                            <div class="file-name">${esc(meta.name)}</div>
+                            <div class="file-meta" id="meta-${meta.id}">${fmtSize(meta.size)} · Receiving...</div>
+                        </div>
+                    </div>
+                    <div class="progress-wrap"><div class="progress-bar" id="bar-${meta.id}"></div></div>
+                    <div class="progress-stats"><span id="pct-${meta.id}">0%</span><span id="spd-${meta.id}"></span></div>
+                </div>`;
+            appendToChat(wrap);
+            transferStats[meta.id] = { startTime: Date.now(), bytesTransferred: 0 };
+        }
+
+        function updateSpeedAndProgress(id, chunksReceived, totalChunks, totalSize) {
+            const pct = Math.round((chunksReceived / totalChunks) * 100);
+            const bar = document.getElementById('bar-' + id);
+            if (bar) bar.style.width = pct + '%';
+            const pctEl = document.getElementById('pct-' + id);
+            if (pctEl) pctEl.textContent = pct + '%';
+
+            const stats = transferStats[id];
+            if (stats) {
+                const elapsed = (Date.now() - stats.startTime) / 1000;
+                const bytesReceived = (chunksReceived / totalChunks) * totalSize;
+                const speed = elapsed > 0 ? bytesReceived / elapsed : 0;
+                const spdEl = document.getElementById('spd-' + id);
+                if (spdEl) spdEl.textContent = fmtSpeed(speed);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  HELPERS
+        // ════════════════════════════════════════════════════════════
+        function copyCode() {
+            navigator.clipboard.writeText(myCode).then(() => sysMsg('Passcode copied to clipboard.'));
+        }
+        function disconnect() {
+            if (pc) { pc.close(); pc = null; }
+            if (realtimeChannel) { realtimeChannel.unsubscribe(); realtimeChannel = null; }
+            if (trafficChannel) { trafficChannel.unsubscribe(); trafficChannel = null; }
+            if (discoveryChannel) { discoveryChannel.unsubscribe(); discoveryChannel = null; }
+            location.reload();
+        }
+
+        function cancelWait() {
+            if (timerInterval) clearInterval(timerInterval);
+            disconnect();
+        }
+
+        function triggerDownload(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; a.click(); }
+        function fmtSize(b) {
+            if (b < 1024) return b + ' B';
+            if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+            if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+            return (b / 1073741824).toFixed(1) + ' GB';
+        }
+        function fmtSpeed(bps) {
+            if (bps < 1024) return bps.toFixed(0) + ' B/s';
+            if (bps < 1048576) return (bps / 1024).toFixed(1) + ' KB/s';
+            return (bps / 1048576).toFixed(1) + ' MB/s';
+        }
+        function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        // ════════════════════════════════════════════════════════════
+        //  QR CODE — Generation & Scanning
+        // ════════════════════════════════════════════════════════════
+        function generateJoinQR(code) {
+            const container = document.getElementById('qrContainer');
+            if (!container) return;
+
+            // Build join URL — use current origin if available, fallback to vercel
+            const base = location.origin && location.origin !== 'null'
+                ? location.origin
+                : 'https://chat-st99.onrender.com';
+            const joinUrl = `${base}?join=${code}`;
+
+            try {
+                const qr = qrcode(0, 'M');
+                qr.addData(joinUrl);
+                qr.make();
+                container.innerHTML = qr.createImgTag(5, 8) +
+                    `<div class="qr-label">Scan to join \u00b7 or share the code above</div>
+                     <button class="btn-secondary" style="margin-top: 15px; width: 100%;" onclick="cancelWait()">Cancel Room</button>`;
+            } catch (e) {
+                console.warn('QR generation failed:', e);
+                container.innerHTML = '';
+            }
+        }
+
+        function openQRScanner() {
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'qr-scanner-overlay';
+            overlay.id = 'qrScannerOverlay';
+            overlay.innerHTML = `
+                <div class="scanner-title">\ud83d\udcf7 Scan Room QR Code</div>
+                <video id="qrVideo" autoplay playsinline></video>
+                <canvas id="qrCanvas" class="hidden"></canvas>
+                <button class="btn-secondary" style="margin-top: 20px; width: 250px;" onclick="closeQRScanner()">Cancel</button>`;
+            document.body.appendChild(overlay);
+
+            const video = document.getElementById('qrVideo');
+            const canvas = document.getElementById('qrCanvas');
+            const ctx = canvas.getContext('2d');
+
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(stream => {
+                    qrScannerStream = stream;
+                    video.srcObject = stream;
+                    video.play();
+
+                    qrScanInterval = setInterval(() => {
+                        if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                        // Use jsQR to decode
+                        if (typeof jsQR !== 'undefined') {
+                            const result = jsQR(imgData.data, imgData.width, imgData.height);
+                            if (result && result.data) {
+                                handleQRResult(result.data);
+                            }
+                        }
+                    }, 250);
+                })
+                .catch(err => {
+                    console.warn('Camera access denied:', err);
+                    closeQRScanner();
+                    setJoinStatus('Camera access denied. Enter code manually.', 'error');
+                });
+        }
+
+        function handleQRResult(data) {
+            // Extract join code from URL like ?join=123456
+            let code = null;
+            try {
+                const url = new URL(data);
+                code = url.searchParams.get('join');
+            } catch {
+                // Maybe it's just a 6-digit code
+                if (/^\d{6}$/.test(data.trim())) code = data.trim();
+            }
+
+            if (code && /^\d{6}$/.test(code)) {
+                closeQRScanner();
+                document.getElementById('joinInput').value = code;
+                // Show join section if hidden
+                const joinSec = document.getElementById('joinSection');
+                if (joinSec.classList.contains('hidden')) joinSec.classList.remove('hidden');
+
+                // Directly trigger join
+                joinRoom();
+            }
+        }
+
+        function closeQRScanner() {
+            if (qrScanInterval) { clearInterval(qrScanInterval); qrScanInterval = null; }
+            if (qrScannerStream) {
+                qrScannerStream.getTracks().forEach(t => t.stop());
+                qrScannerStream = null;
+            }
+            const overlay = document.getElementById('qrScannerOverlay');
+            if (overlay) overlay.remove();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  AUTO-DISCOVERY LOGIC
+        // ════════════════════════════════════════════════════════════
+        function getNicknameSilent() {
+            return document.getElementById('nickInput').value.trim();
+        }
+
+
+
+        function getOS() {
+            if (/windows phone/i.test(navigator.userAgent)) return "Windows Phone";
+            if (/android/i.test(navigator.userAgent)) return "Android";
+            if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) return "iOS";
+            if (/Mac/.test(navigator.userAgent)) return "Mac";
+            if (/Win/.test(navigator.userAgent)) return "Windows";
+            if (/Linux/.test(navigator.userAgent)) return "Linux";
+            return "Unknown Device";
+        }
+
+        function renderPeers(peers) {
+            const sec = document.getElementById('discoverySection');
+            const list = document.getElementById('peerList');
+            if (peers.length === 0) {
+                sec.classList.add('hidden');
+                list.innerHTML = '';
+                return;
+            }
+            sec.classList.remove('hidden');
+            list.innerHTML = peers.map(p => `
+                <div class="peer-card" onclick="requestDiscoveryConnect('${p.id}')">
+                    <div style="font-size:24px;">\ud83d\udcf1</div>
+                    <div style="flex: 1;">
+                        <div style="font-weight:600;">${esc(p.nick)}</div>
+                        <div style="font-size:11px; color:var(--text-muted);">${esc(p.os)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+
+
+        function showCustomPrompt(title, message) {
+            return new Promise(resolve => {
+                const overlay = document.createElement('div');
+                overlay.className = 'custom-prompt-overlay';
+                overlay.innerHTML = `
+                    <div class="custom-prompt">
+                        <h3>${esc(title)}</h3>
+                        <p>${esc(message)}</p>
+                        <div class="custom-prompt-actions">
+                            <button class="btn-secondary" id="promptDecline">Decline</button>
+                            <button class="btn-primary" id="promptAccept">Accept</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+
+                document.getElementById('promptDecline').onclick = () => {
+                    overlay.remove();
+                    resolve(false);
+                };
+                document.getElementById('promptAccept').onclick = () => {
+                    overlay.remove();
+                    resolve(true);
+                };
+            });
+        }
+
+
+
+        // ════════════════════════════════════════════════════════════
+        //  IMAGE SENDING (with compression)
+        // ════════════════════════════════════════════════════════════
+        function pickImage() { document.getElementById('imageInput').click(); }
+
+        function sendImageFile() {
+            const inp = document.getElementById('imageInput');
+            const file = inp.files[0];
+            if (!file) return;
+            inp.value = '';
+            compressAndSendImage(file);
+        }
+
+        async function compressAndSendImage(file) {
+            if (!connected) return;
+
+            const MAX_DIM = 1200;
+            const QUALITY = 0.7;
+
+            try {
+                // Read file as image
+                const bitmap = await createImageBitmap(file);
+                let w = bitmap.width;
+                let h = bitmap.height;
+
+                // Resize if needed
+                if (w > MAX_DIM || h > MAX_DIM) {
+                    if (w > h) { h = Math.round(h * MAX_DIM / w); w = MAX_DIM; }
+                    else { w = Math.round(w * MAX_DIM / h); h = MAX_DIM; }
+                }
+
+                // Draw onto canvas and export as JPEG
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(bitmap, 0, 0, w, h);
+                bitmap.close();
+
+                const compressedBlob = await new Promise(resolve =>
+                    canvas.toBlob(resolve, 'image/jpeg', QUALITY)
+                );
+
+                const originalSize = file.size;
+                const compressedSize = compressedBlob.size;
+                console.log(`Image compressed: ${fmtSize(originalSize)} → ${fmtSize(compressedSize)} (${Math.round(compressedSize / originalSize * 100)}%)`);
+
+                // Create a File from the blob for processFileToSend
+                const compressedName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+                const compressedFile = new File([compressedBlob], compressedName, { type: 'image/jpeg' });
+
+                // Show sender's inline preview immediately
+                const previewUrl = URL.createObjectURL(compressedBlob);
+                sendImageWithPreview(compressedFile, previewUrl);
+
+            } catch (e) {
+                console.warn('Image compression failed, sending original:', e);
+                processFileToSend(file);
+            }
+        }
+
+        async function sendImageWithPreview(file, previewUrl) {
+            if (!connected) return;
+
+            const totalChunks = Math.ceil(file.size / CHUNK);
+            const fileId = 'f' + Date.now();
+            const useRTC = usingRTC && dataChannel && dataChannel.readyState === 'open';
+
+            // Images also require WebRTC DataChannel — Supabase relay is signaling-only
+            if (!useRTC) {
+                sysMsg(`❌ Cannot send image: WebRTC P2P is not yet connected. Please wait for the "🔒 P2P" or "⚡ LAN Direct" badge, then try again.`);
+                return;
+            }
+
+            // Store pending transfer with the File reference to slice incrementally
+            pendingOutgoing[fileId] = { buf: null, totalChunks, file, useRTC, isAutoImage: true };
+
+            // Send metadata request
+            const req = { kind: 'file-request', fileId, name: file.name, size: file.size, mime: file.type, totalChunks, useRTC, isAutoImage: true };
+            relay(req);
+
+            // Show sender's bubble with inline image preview
+            const wrap = document.createElement('div');
+            wrap.className = 'msg-wrapper sent';
+            wrap.id = fileId;
+            wrap.innerHTML = `
+                <div class="msg-nick">${esc(myNick)}</div>
+                <div class="msg image-msg" style="background:transparent; padding:4px;">
+                    <img class="chat-image" src="${previewUrl}" alt="${esc(file.name)}" onclick="viewImage('${previewUrl}')" style="opacity:0.6; filter: grayscale(50%);">
+                    <div class="file-meta" id="meta-${fileId}" style="font-size:11px; color:var(--text-muted); opacity:0.8; text-align:right; margin-top:2px;">${fmtSize(file.size)} · Sending...</div>
+                </div>`;
+            appendToChat(wrap);
+
+            // Auto bypass: start sending immediately without waiting for receiver Accept
+            startActualTransfer(fileId);
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  IMAGE VIEWER (full-screen overlay)
+        // ════════════════════════════════════════════════════════════
+        function viewImage(url) {
+            const overlay = document.createElement('div');
+            overlay.className = 'img-viewer-overlay';
+            overlay.onclick = () => overlay.remove();
+            overlay.innerHTML = `<img src="${url}" alt="Full size image">`;
+            document.body.appendChild(overlay);
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  DEEP-LINK AUTO-JOIN
+        // ════════════════════════════════════════════════════════════
+        function checkDeepLink() {
+            const params = new URLSearchParams(window.location.search);
+            const joinCode = params.get('join');
+            if (joinCode && /^\d{6}$/.test(joinCode)) {
+                // Show join section and fill in the code
+                const joinSec = document.getElementById('joinSection');
+                if (joinSec.classList.contains('hidden')) joinSec.classList.remove('hidden');
+                document.getElementById('joinInput').value = joinCode;
+                // Focus nickname input
+                document.getElementById('nickInput').focus();
+                setJoinStatus('Room code loaded from QR link \u2014 enter nickname and click Connect.', 'loading');
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  DRAG & DROP + INIT
+        // ════════════════════════════════════════════════════════════
+        function bindDragEvents() {
+            const chatScreen = document.getElementById('chatScreen');
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                chatScreen.addEventListener(eventName, e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+
+            chatScreen.addEventListener('dragenter', () => chatScreen.classList.add('drag-active'), false);
+            chatScreen.addEventListener('dragover', () => chatScreen.classList.add('drag-active'), false);
+            chatScreen.addEventListener('dragleave', (e) => {
+                if (!chatScreen.contains(e.relatedTarget)) {
+                    chatScreen.classList.remove('drag-active');
+                }
+            }, false);
+
+            chatScreen.addEventListener('drop', (e) => {
+                chatScreen.classList.remove('drag-active');
+                if (!connected) return;
+
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    // Auto-detect images for inline display
+                    if (file.type.startsWith('image/')) {
+                        compressAndSendImage(file);
+                    } else {
+                        processFileToSend(file);
+                    }
+                }
+            }, false);
+        }
+
+        window.addEventListener('load', () => {
+            // Connect Supabase
+            connectSupabase();
+
+            // Bind drag events
+            bindDragEvents();
+
+            // Register service worker for PWA
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('SW registered:', reg.scope))
+                    .catch(err => console.warn('SW registration failed:', err));
+            }
+        });
+
+        // Clean up connections on page unload silently without annoying prompts
+        window.addEventListener('unload', () => {
+            if (pc) pc.close();
+            if (realtimeChannel) realtimeChannel.unsubscribe();
+            if (trafficChannel) trafficChannel.unsubscribe();
+            if (discoveryChannel) discoveryChannel.unsubscribe();
+        });
+    </script>
+</body>
+
+</html>

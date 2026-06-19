@@ -41,23 +41,36 @@ export function usePeer(identity) {
       return;
     }
 
-    // Join global lobby for presence / online count
-    const lobbySig = new SignalingChannel('global_lobby', identity.peerId);
-    lobbySignalingRef.current = lobbySig;
+    const initLobby = async () => {
+      let networkId = 'global_lobby';
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        if (res.ok) {
+          const data = await res.json();
+          // Hash the IP lightly for privacy in the channel name
+          const ipHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(data.ip))))
+            .map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+          networkId = `lobby_${ipHash}`;
+        }
+      } catch (e) {
+        console.warn('Failed to detect public IP for local discovery fallback to global', e);
+      }
 
-    lobbySig.on('peers', (peers) => {
-      setLanPeers(prev => {
-        // Merge lobby peers, preserving any WAN-flagged peers from room joins
-        const wanIds = new Set(prev.filter(p => p.isWan).map(p => p.id));
-        const lobbyPeers = peers.filter(p => !wanIds.has(p.id));
-        const wanPeers = prev.filter(p => p.isWan);
-        return [...lobbyPeers, ...wanPeers];
+      // Join network-specific lobby for presence / online count
+      const lobbySig = new SignalingChannel(networkId, identity.peerId);
+      lobbySignalingRef.current = lobbySig;
+
+      lobbySig.on('peers', (peers) => {
+        setLanPeers(prev => {
+          const wanIds = new Set(prev.filter(p => p.isWan).map(p => p.id));
+          const lobbyPeers = peers.filter(p => !wanIds.has(p.id));
+          const wanPeers = prev.filter(p => p.isWan);
+          return [...lobbyPeers, ...wanPeers];
+        });
+        activityLog.setOnlineCount(peers.length + 1);
       });
-      activityLog.setOnlineCount(peers.length + 1);
-    });
 
-    // Listen for incoming signals
-    lobbySig.on('signal', async (payload) => {
+      lobbySig.on('signal', async (payload) => {
       if (payload.type === 'chat_request' && payload.from) {
         setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer' });
       } else if (payload.type === 'chat_accept' && payload.from) {
@@ -76,22 +89,25 @@ export function usePeer(identity) {
       }
     });
 
-    lobbySig.connect({
-      displayName: identity.displayName,
-      os: identity.os
-    });
+      lobbySig.connect({
+        displayName: identity.displayName,
+        os: identity.os
+      });
 
-    // Check URL for room code
-    const urlRoom = getRoomCodeFromUrl();
-    if (urlRoom) {
-      setRoomCode(urlRoom);
-      activityLog.log('info', 'Room code from URL', urlRoom);
-      _joinRoom(urlRoom);
-    }
+      // Check URL for room code
+      const urlRoom = getRoomCodeFromUrl();
+      if (urlRoom) {
+        setRoomCode(urlRoom);
+        activityLog.log('info', 'Room code from URL', urlRoom);
+        _joinRoom(urlRoom);
+      }
+    };
+
+    initLobby();
 
     return () => {
-      lobbySignalingRef.current?.disconnect();
-      roomSignalingRef.current?.disconnect();
+      if (lobbySignalingRef.current) lobbySignalingRef.current.disconnect();
+      if (roomSignalingRef.current) roomSignalingRef.current.disconnect();
       initedRef.current = false;
     };
   }, [identity?.peerId]);
@@ -283,12 +299,22 @@ export function usePeer(identity) {
   }, [incomingRequest, _handleIncomingConnection]);
 
   const rejectRequest = useCallback(() => {
-    if (!incomingRequest) return;
-    const payload = { type: 'chat_reject' };
-    if (roomSignalingRef.current) roomSignalingRef.current.signal(incomingRequest.from, payload);
-    if (lobbySignalingRef.current) lobbySignalingRef.current.signal(incomingRequest.from, payload);
-    setIncomingRequest(null);
+    if (incomingRequest) {
+      const payload = { type: 'chat_reject' };
+      if (roomSignalingRef.current) roomSignalingRef.current.signal(incomingRequest.from, payload);
+      if (lobbySignalingRef.current) lobbySignalingRef.current.signal(incomingRequest.from, payload);
+      setIncomingRequest(null);
+    }
   }, [incomingRequest]);
+
+  const updateNickname = useCallback((newName) => {
+    if (lobbySignalingRef.current && identityRef.current) {
+      lobbySignalingRef.current.updatePresence({
+        displayName: newName,
+        os: identityRef.current.os
+      });
+    }
+  }, []);
 
   // ── Create a room ──
   const createRoom = useCallback(() => {
@@ -358,6 +384,7 @@ export function usePeer(identity) {
     pendingRequest,
     acceptRequest,
     rejectRequest,
+    updateNickname,
     endChat
   };
 }

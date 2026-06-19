@@ -61,39 +61,12 @@ export class Sender {
     return { meta };
   }
 
-  // FIX #4: Stream-based hashing — processes file in 2MB chunks
   async _hashFileChunked(file) {
-    // Use the incremental SHA-256 capability
-    // We read the file in chunks and hash incrementally
-    const reader = file.stream().getReader();
-    const chunks = [];
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-
-    // Concatenate all chunks for hashing (but in controlled batches)
-    // For files under 100MB, hash directly
-    if (file.size < 100 * 1024 * 1024) {
-      const bufferSize = chunks.reduce((acc, val) => acc + val.byteLength, 0);
-      const buffer = new Uint8Array(bufferSize);
-      let offset = 0;
-      for (const chunk of chunks) {
-        buffer.set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength), offset);
-        offset += chunk.byteLength;
-      }
-      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-      return Array.from(new Uint8Array(hashBuffer))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-    }
-
-    // For large files, use first + last 1MB + file size as a fast hash
-    // This is a compromise — full SHA-256 of multi-GB files takes too long
-    const firstChunk = await file.slice(0, 1024 * 1024).arrayBuffer();
-    const lastChunk = await file.slice(Math.max(0, file.size - 1024 * 1024)).arrayBuffer();
+    // Use fast hash for all files to prevent RAM spikes
+    // first 1MB + last 1MB + file size
+    const chunkSize = Math.min(1024 * 1024, file.size);
+    const firstChunk = await file.slice(0, chunkSize).arrayBuffer();
+    const lastChunk = await file.slice(Math.max(0, file.size - chunkSize)).arrayBuffer();
     const sizeStr = new TextEncoder().encode(file.size.toString());
 
     const combined = new Uint8Array(firstChunk.byteLength + lastChunk.byteLength + sizeStr.byteLength);
@@ -134,7 +107,7 @@ export class Sender {
           { rawKey, chunkBuffer, seq, compress: shouldCompress, mimeType: file.type }
         );
 
-        const wire = buildChunkHeader(seq, this.meta.totalChunks, chunkHash, encrypted);
+        const wire = buildChunkHeader(seq, this.meta.totalChunks, chunkHash, this.transferId, encrypted);
 
         const channel = this.channels[seq % this.channels.length];
 

@@ -107,7 +107,11 @@ export class Receiver {
         }, [decrypted]);
         
       } else if (this.writerMode === 'fsa') {
-        this.fsaChunks.set(seq, decrypted);
+        await this.fsaWritable.write({
+          type: 'write',
+          position: seq * 64 * 1024,
+          data: decrypted
+        });
         
         if (this.receivedCount === this.meta.totalChunks) {
           await this._finalizeFSA();
@@ -147,13 +151,6 @@ export class Receiver {
   }
 
   async _finalizeFSA() {
-    for (let i = 0; i < this.meta.totalChunks; i++) {
-      const chunk = this.fsaChunks.get(i);
-      if (chunk) {
-        await this.fsaWritable.write(chunk);
-        this.fsaChunks.delete(i);
-      }
-    }
     await this.fsaWritable.close();
     this.onComplete(this.meta.fileHash, null);
     this._shutdown();

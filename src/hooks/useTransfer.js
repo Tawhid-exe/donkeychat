@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Receiver } from '../transfer/receiver';
 import { activityLog } from '../utils/activityLog';
 import { globalMessageStore } from '../chat/messages';
+import { parseChunkHeader } from '../transfer/protocol';
 
 export function useTransfer(transferEngine, activeConnection) {
   const [activeTransfers, setActiveTransfers] = useState([]);
@@ -137,10 +138,14 @@ export function useTransfer(transferEngine, activeConnection) {
   useEffect(() => {
     if (!activeConnection) return;
     const chunkHandler = (data) => {
-      const receivers = Array.from(receiversRef.current.values());
-      const lastReceiver = receivers[receivers.length - 1];
-      if (lastReceiver) {
-        lastReceiver.receiveChunk(data);
+      try {
+        const { transferId } = parseChunkHeader(data);
+        const receiver = receiversRef.current.get(transferId);
+        if (receiver) {
+          receiver.receiveChunk(data);
+        }
+      } catch (err) {
+        console.error('Failed to route chunk:', err);
       }
     };
     activeConnection.on('chunk_received', chunkHandler);

@@ -26,7 +26,7 @@ function App() {
   const {
     lanPeers, connectToPeer, activeConnection, connectedPeer,
     connectionTier, transferEngine, roomCode, createRoom, joinRoom,
-    getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, endChat
+    getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, updateNickname, endChat
   } = usePeer(stableIdentity);
 
   const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer, declineTransfer } = useTransfer(transferEngine, activeConnection);
@@ -240,7 +240,7 @@ function App() {
   //  RENDER
   // ════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col fixed inset-0 bg-[#09090b] text-[#fafafa] overflow-hidden font-sans" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div className="flex flex-col h-full w-full bg-[#09090b] text-[#fafafa] font-sans overflow-hidden" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       
       {/* Pending Request Overlay */}
       {pendingRequest && (
@@ -312,7 +312,11 @@ function App() {
                 <input
                   type="text"
                   value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
+                  onChange={(e) => {
+                    const newName = e.target.value;
+                    setCustomName(newName);
+                    updateNickname(newName);
+                  }}
                   className="w-full bg-[#09090b] border border-[#3f3f46] text-[#fafafa] p-3 rounded-xl text-[15px] transition-all focus:outline-none focus:border-[#ef4444] focus:ring-2 focus:ring-[#ef4444]/20"
                   placeholder="Name"
                   maxLength={20}
@@ -457,7 +461,7 @@ function App() {
                           <span className="text-[10px] text-white/90">
                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {isMe && <span className="text-[10px] text-white/90">✓✓</span>}
+                          {isMe && <span className="text-[10px] text-white/90">✓</span>}
                         </div>
                       </div>
                     </div>
@@ -494,7 +498,7 @@ function App() {
                           <span className={`text-[10px] ${isMe ? 'text-red-200/70' : 'text-[#52525b]'}`}>
                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          {isMe && <span className="text-[10px] text-red-200/70">✓✓</span>}
+                          {isMe && <span className="text-[10px] text-red-200/70">✓</span>}
                         </div>
                       )}
                     </div>

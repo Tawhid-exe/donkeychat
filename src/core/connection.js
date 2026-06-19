@@ -207,10 +207,8 @@ export class BlazeConnection {
   _setupTransferChannel(channel, index) {
     channel.binaryType = 'arraybuffer';
     channel.onopen = () => {
-      const allOpen = this.transferChannels.every(
-        dc => dc && dc.readyState === 'open'
-      );
-      if (allOpen) this._emit('transfer_ready', this.transferChannels);
+      const openCount = this.transferChannels.filter(dc => dc && dc.readyState === 'open').length;
+      if (openCount === NUM_TRANSFER_CHANNELS) this._emit('transfer_ready', this.transferChannels);
     };
     channel.onmessage = ({ data }) => {
       this._emit('chunk_received', data, index);

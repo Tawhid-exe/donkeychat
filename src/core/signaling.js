@@ -110,6 +110,15 @@ export class SignalingChannel {
     });
   }
 
+  async updatePresence(presenceData) {
+    if (!this.channel) return;
+    try {
+      await this.channel.track(presenceData);
+    } catch (e) {
+      console.warn('Failed to update presence', e);
+    }
+  }
+
   async signal(to, data) {
     await this.send('signal', { ...data, from: this.peerId, to });
   }
@@ -119,11 +128,7 @@ export class SignalingChannel {
     await this.send('chat', { ...msg, from: this.peerId });
   }
 
-  async updatePresence(data) {
-    if (this.channel) {
-      try { await this.channel.track(data); } catch (e) {}
-    }
-  }
+
 
   async disconnect() {
     if (this.channel && supabase) {
