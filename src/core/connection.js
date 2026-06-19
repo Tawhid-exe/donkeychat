@@ -36,7 +36,7 @@ async function getIceServers() {
   return servers;
 }
 
-const NUM_TRANSFER_CHANNELS = 4;
+const NUM_TRANSFER_CHANNELS = 1;
 const CHAT_CHANNEL_LABEL = 'blaze-chat';
 
 export class BlazeConnection {
@@ -174,7 +174,7 @@ export class BlazeConnection {
 
     for (let i = 0; i < NUM_TRANSFER_CHANNELS; i++) {
       const dc = this.pc.createDataChannel(`blaze-transfer-${i}`, {
-        ordered: false
+        ordered: true
       });
       this._setupTransferChannel(dc, i);
       this.transferChannels.push(dc);

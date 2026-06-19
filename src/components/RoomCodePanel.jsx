@@ -35,21 +35,47 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
     }
   };
 
+  const [timeLeft, setTimeLeft] = useState(600); // 10 minutes
+
+  React.useEffect(() => {
+    if (!roomCode) return;
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [roomCode]);
+
   // ── Room code display (after creating a room) ──
   if (roomCode) {
+    const mins = Math.floor(timeLeft / 60);
+    const secs = String(timeLeft % 60).padStart(2, '0');
+    const isExpired = timeLeft === 0;
+
     return (
-      <div className="p-4 bg-[#18181b] rounded-xl border border-[#3f3f46]">
+      <div className={`p-4 bg-[#18181b] rounded-xl border ${isExpired ? 'border-red-500/50' : 'border-[#3f3f46]'}`}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-[12px] uppercase tracking-[0.5px] text-[#a1a1aa] font-bold">Room Code</span>
-          <button onClick={handleCopy} className="text-[12px] font-bold text-[#ef4444] hover:text-[#dc2626] transition-colors">
+          <button onClick={handleCopy} disabled={isExpired} className="text-[12px] font-bold text-[#ef4444] hover:text-[#dc2626] transition-colors disabled:opacity-50">
             {showCopied ? '✓ Copied!' : 'Copy Link'}
           </button>
         </div>
         <div className="flex items-center justify-between">
-          <p className="text-2xl font-mono font-bold text-[#ef4444] tracking-[0.4em] drop-shadow-[0_0_10px_rgba(239,68,68,0.3)]">{roomCode}</p>
+          <div className="flex flex-col">
+            <p className={`text-2xl font-mono font-bold tracking-[0.4em] ${isExpired ? 'text-red-500/50 line-through' : 'text-[#ef4444] drop-shadow-[0_0_10px_rgba(239,68,68,0.3)]'}`}>{roomCode}</p>
+            <span className={`text-xs mt-1 font-semibold ${isExpired ? 'text-red-500' : timeLeft < 60 ? 'text-red-400 animate-pulse' : 'text-[#a1a1aa]'}`}>
+              {isExpired ? '⏱ Expired. Reload to create new.' : `⏱ Expires in ${mins}:${secs}`}
+            </span>
+          </div>
           <button
             onClick={() => setQrMode('share')}
-            className="p-2 bg-[#ef4444]/10 text-[#ef4444] rounded-lg hover:bg-[#ef4444]/20 transition-colors"
+            disabled={isExpired}
+            className="p-2 bg-[#ef4444]/10 text-[#ef4444] rounded-lg hover:bg-[#ef4444]/20 transition-colors disabled:opacity-50"
             title="Show QR Code"
           >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

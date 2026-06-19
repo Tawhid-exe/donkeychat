@@ -42,7 +42,7 @@ export function usePeer(identity) {
     }
 
     const initLobby = async () => {
-      let networkId = 'global_lobby';
+      let networkId = `lobby_local_${Math.random().toString(36).slice(2,10)}`;
       try {
         const res = await fetch('https://api.ipify.org?format=json');
         if (res.ok) {
@@ -53,7 +53,7 @@ export function usePeer(identity) {
           networkId = `lobby_${ipHash}`;
         }
       } catch (e) {
-        console.warn('Failed to detect public IP for local discovery fallback to global', e);
+        console.warn('Failed to detect public IP for local discovery, using isolated random lobby', e);
       }
 
       // Join network-specific lobby for presence / online count
