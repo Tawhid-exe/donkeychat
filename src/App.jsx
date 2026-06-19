@@ -240,7 +240,7 @@ function App() {
   //  RENDER
   // ════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col h-full w-full bg-[#09090b] text-[#fafafa] font-sans overflow-hidden" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div className="flex flex-col h-[100dvh] w-full bg-[#09090b] text-[#fafafa] font-sans overflow-hidden" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       
       {/* Pending Request Overlay */}
       {pendingRequest && (
@@ -369,8 +369,8 @@ function App() {
         </div>
       ) : (
         /* ═══════ TELEGRAM-STYLE CHAT VIEW ═══════ */
-        <div className="flex-1 flex flex-col items-center justify-center py-3 px-2 md:py-4">
-          <div className="flex flex-col w-full h-full max-h-full md:max-w-2xl md:mx-auto md:rounded-2xl md:border md:border-[#27272a] md:overflow-hidden md:shadow-[0_0_40px_rgba(0,0,0,0.6)] bg-[#09090b]">
+        <div className="flex-1 min-h-0 flex flex-col w-full md:py-4">
+          <div className="flex flex-col flex-1 min-h-0 w-full md:max-w-2xl md:mx-auto md:rounded-2xl md:border md:border-[#27272a] md:overflow-hidden md:shadow-[0_0_40px_rgba(0,0,0,0.6)] bg-[#09090b]">
           {/* Spacer for global ActivityLog on mobile */}
           <div className="md:hidden w-full h-14 flex-shrink-0 bg-[#09090b]"></div>
           
