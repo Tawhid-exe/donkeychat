@@ -103,8 +103,14 @@ export class BlazeConnection {
         this._emit('connected', this.connectionTier);
       }
 
-      if (state === 'failed' || state === 'disconnected') {
+      if (state === 'failed') {
         this._emit('failed');
+      }
+
+      if (state === 'disconnected') {
+        // WebRTC disconnected temporarily (e.g. internet dropped but LAN is active).
+        // It will try to recover automatically. Do not emit fatal failure.
+        console.warn('WebRTC disconnected, attempting to recover via LAN/WAN candidates...');
       }
 
       if (state === 'closed') {
