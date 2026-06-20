@@ -4,6 +4,58 @@ import { activityLog } from '../utils/activityLog';
 import { globalMessageStore } from '../chat/messages';
 import { parseChunkHeader } from '../transfer/protocol';
 
+const startPullingChunks = async (meta, receiver) => {
+  const isHttp = meta.tier === 3; // TIER.HTTP
+  const isAsync = meta.tier === 4; // TIER.ASYNC
+  if (!isHttp && !isAsync) return;
+
+  const { downloadChunkFromStorage } = await import('../transfer/relay');
+  const RELAY_URL = import.meta.env.VITE_RELAY_URL || '';
+  
+  let seq = 0;
+  const total = meta.totalChunks;
+  
+  while (seq < total) {
+    try {
+      let packet;
+      if (isHttp) {
+        const resp = await fetch(`${RELAY_URL}/transfer/${meta.transferId}/chunk/${seq}`);
+        if (!resp.ok) {
+          if (resp.status === 404) {
+            await new Promise(r => setTimeout(r, 500)); // wait for sender
+            continue;
+          }
+          throw new Error(`HTTP Relay chunk fetch failed: ${resp.status}`);
+        }
+        const buffer = await resp.arrayBuffer();
+        packet = new Uint8Array(buffer);
+      } else {
+        try {
+          packet = await downloadChunkFromStorage(meta.transferId, seq);
+        } catch (e) {
+          // If chunk not found yet, wait and retry
+          if (e.message?.includes('not found') || e.status === 404 || e.message?.includes('does not exist')) {
+            await new Promise(r => setTimeout(r, 500));
+            continue;
+          }
+          throw e;
+        }
+      }
+      
+      await receiver.receiveChunk(packet.buffer || packet);
+      seq++;
+    } catch (err) {
+      console.error('Failed to pull chunk, retrying...', err);
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  if (isAsync) {
+    const { cleanupStorage } = await import('../transfer/relay');
+    await cleanupStorage(meta.transferId, total).catch(console.error);
+  }
+};
+
 export function useTransfer(transferEngine, activeConnection) {
   const [activeTransfers, setActiveTransfers] = useState([]);
   const receiversRef = useRef(new Map());
@@ -47,6 +99,7 @@ export function useTransfer(transferEngine, activeConnection) {
       try {
         await receiver.init();
         activeConnection.sendChat({ type: 'file_ready', transferId: meta.transferId });
+        startPullingChunks(meta, receiver); // Pull chunks if tier 3 or 4
       } catch (err) {
         activityLog.log('error', 'Receiver init failed', err.message);
         return;
@@ -72,6 +125,7 @@ export function useTransfer(transferEngine, activeConnection) {
       await transfer.receiver.init();
       // Send ACK so sender starts streaming
       activeConnection.sendChat({ type: 'file_ready', transferId });
+      startPullingChunks(transfer.meta, transfer.receiver); // Pull chunks if tier 3 or 4
       setActiveTransfers(prev =>
         prev.map(t =>
           t.meta.transferId === transferId

@@ -54,23 +54,9 @@ export class TransferEngine {
       return this._sendViaWebRTC(file, transferId, onProgress, onComplete, onError);
     }
 
-    // FIX #13: Tier 3 and 4 — proper error messaging instead of crashing
-    if (this.currentTier === TIER.HTTP) {
-      activityLog.log('fallback', 'HTTP Relay attempted', 'Requires a deployed Bun.js relay server');
-      onError(new Error(
-        'HTTP Relay requires a deployed relay server. ' +
-        'Set VITE_RELAY_URL in .env.local and deploy the relay server.'
-      ));
-      return;
-    }
-
-    if (this.currentTier === TIER.ASYNC) {
-      activityLog.log('fallback', 'Async Storage attempted', 'Requires Supabase Storage bucket');
-      onError(new Error(
-        'Async transfer requires Supabase Storage with a "blaze-transfers" bucket. ' +
-        'Configure Supabase in .env.local.'
-      ));
-      return;
+    if (this.currentTier === TIER.HTTP || this.currentTier === TIER.ASYNC) {
+      activityLog.log('info', 'File send started', `${file.name} (${(file.size / 1e6).toFixed(1)}MB) via ${TIER_NAMES[this.currentTier]}`);
+      return this._sendViaRelay(file, transferId, onProgress, onComplete, onError, this.currentTier);
     }
 
     // No tier set — likely the race condition wasn't fully resolved
@@ -79,6 +65,116 @@ export class TransferEngine {
       onError(new Error('Connection tier not yet detected. Please wait for the connection to stabilize.'));
       return;
     }
+  }
+
+  async _sendViaRelay(file, transferId, onProgress, onComplete, onError, tier) {
+    const { Sender } = await import('./sender');
+    const { uploadChunkToStorage } = await import('./relay');
+    const { parseChunkHeader } = await import('./protocol');
+    
+    let isHttp = tier === TIER.HTTP;
+    const RELAY_URL = import.meta.env.VITE_RELAY_URL || '';
+    
+    if (isHttp && (!RELAY_URL || RELAY_URL.includes('placeholder'))) {
+      onError(new Error('HTTP Relay requires a deployed relay server. Set VITE_RELAY_URL in .env.local.'));
+      return;
+    }
+    
+    // Mock channel that uploads to relay/storage instead of WebRTC data channel
+    const mockChannel = {
+      send: async (packet) => {
+        try {
+          const buffer = packet.buffer || packet;
+          const { seq } = parseChunkHeader(buffer);
+          
+          if (isHttp) {
+            const resp = await fetch(`${RELAY_URL}/transfer/${transferId}/chunk/${seq}`, {
+              method: 'PUT',
+              body: packet
+            });
+            if (!resp.ok) throw new Error(`HTTP Relay chunk failed`);
+          } else {
+            await uploadChunkToStorage(transferId, seq, buffer);
+          }
+        } catch (err) {
+          onError(err);
+        }
+      }
+    };
+    
+    // Create mock channels for parallel uploading
+    const mockChannels = [mockChannel, mockChannel, mockChannel, mockChannel];
+    
+    this.sender = new Sender(
+      mockChannels,
+      onProgress,
+      onComplete,
+      onError,
+      transferId
+    );
+    
+    const { meta } = await this.sender.prepareMeta(file);
+    meta.tier = tier; // Add tier so receiver knows to pull
+    
+    if (isHttp) {
+      // Initialize HTTP relay transfer on server
+      try {
+        await fetch(`${RELAY_URL}/transfer/init`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transferId, from: this.identity.peerId, to: this.conn.remotePeerId, fileName: file.name, fileSize: file.size, totalChunks: meta.totalChunks })
+        });
+      } catch (err) {
+        onError(new Error('Failed to init HTTP relay: ' + err.message));
+        return;
+      }
+    }
+    
+    this.conn.sendChat({
+      type: 'file_incoming',
+      meta: {
+        transferId: meta.transferId,
+        fileName: meta.fileName,
+        fileSize: meta.fileSize,
+        totalChunks: meta.totalChunks,
+        mimeType: meta.mimeType,
+        fileHash: meta.fileHash,
+        rawKey: meta.rawKey,
+        compress: meta.compress ?? false,
+        tier: tier
+      }
+    });
+
+    let readyReceived = false;
+    let rejected = false;
+    const readyHandler = (msg) => {
+      if (msg.type === 'file_ready' && msg.transferId === meta.transferId) {
+        readyReceived = true;
+      }
+      if (msg.type === 'file_rejected' && msg.transferId === meta.transferId) {
+        rejected = true;
+      }
+    };
+    this.conn.on('chat_message', readyHandler);
+
+    let waited = 0;
+    while (!readyReceived && !rejected && waited < 60000) {
+      await new Promise(r => setTimeout(r, 200));
+      waited += 200;
+    }
+    this.conn.off('chat_message', readyHandler);
+
+    if (rejected) {
+      onError(new Error('Receiver declined the file transfer.'));
+      return;
+    }
+
+    if (!readyReceived) {
+      onError(new Error('Receiver did not respond in time. Transfer cancelled.'));
+      return;
+    }
+
+    return this.sender.send(file);
   }
 
   async _sendViaWebRTC(file, transferId, onProgress, onComplete, onError) {
