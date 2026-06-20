@@ -299,7 +299,10 @@ function App() {
                   onChange={(e) => {
                     const newName = e.target.value;
                     setCustomName(newName);
-                    updateNickname(newName);
+                    if (window.nickTimeoutRef) clearTimeout(window.nickTimeoutRef);
+                    window.nickTimeoutRef = setTimeout(() => {
+                      updateNickname(newName);
+                    }, 600);
                   }}
                   className="w-full bg-[#09090b] border border-[#3f3f46] text-[#fafafa] p-3 rounded-xl text-[15px] transition-all focus:outline-none focus:border-[#ef4444] focus:ring-2 focus:ring-[#ef4444]/20"
                   placeholder="Name"

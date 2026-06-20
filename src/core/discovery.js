@@ -1,3 +1,10 @@
+/**
+ * Discovery module — matches the legacy approach exactly.
+ * Uses ipify.org public IP API to group peers on the same network.
+ * This is instant and reliable, unlike ICE candidate gathering which
+ * is blocked by mDNS in modern browsers.
+ */
+
 async function sha256(str) {
   const buf = await crypto.subtle.digest(
     'SHA-256',
@@ -8,53 +15,40 @@ async function sha256(str) {
     .join('');
 }
 
-export function extractLanRoom(pc, onFound) {
-  const seenSubnet = new Set();
-  const seenPublic = new Set();
-  let foundSubnet = false;
-  
-  pc.onicecandidate = async ({ candidate }) => {
-    if (!candidate) return;
-    const sdp = candidate.candidate;
+/**
+ * Get a deterministic discovery room ID based on the user's public IP.
+ * All devices behind the same router will share the same public IP,
+ * so they will join the same discovery channel — exactly like the legacy version.
+ *
+ * Returns: Promise<string> — e.g. "discovery_a1b2c3d4e5..."
+ */
+export async function getDiscoveryRoomId() {
+  try {
+    let publicIp = 'fallback-ip';
     
-    // Extract IPv4 address
-    const ipv4Match = sdp.match(/(\d{1,3}\.){3}\d{1,3}/);
-    if (!ipv4Match) return;
-    const ip = ipv4Match[0];
-    
-    // Skip loopback and link-local
-    if (ip.startsWith('127.') || ip.startsWith('169.254.')) return;
-
-    if (sdp.includes('host')) {
-      // Local network
-      const subnet = ip.split('.').slice(0, 3).join('.');
-      if (seenSubnet.has(subnet)) return;
-      seenSubnet.add(subnet);
-      
-      const roomHash = await sha256('lan_' + subnet);
-      foundSubnet = true;
-      onFound('lan_' + roomHash.slice(0, 24), 'lan');
-    } else if (sdp.includes('srflx')) {
-      // Public IP (behind NAT)
-      if (seenPublic.has(ip) || foundSubnet) return;
-      seenPublic.add(ip);
-      
-      const roomHash = await sha256('wan_' + ip);
-      onFound('wan_' + roomHash.slice(0, 24), 'wan');
+    try {
+      const res = await fetch('https://api64.ipify.org?format=json', { 
+        signal: AbortSignal.timeout(3000) // 3s timeout, fail fast
+      });
+      const data = await res.json();
+      publicIp = data.ip;
+    } catch (ipErr) {
+      console.warn('Failed to retrieve public IP, using fallback:', ipErr);
     }
-  };
-}
 
-export function generateRoomCode() {
-  // Pure numeric 6-digit code: 000000 – 999999
-  const arr = new Uint8Array(6);
-  crypto.getRandomValues(arr);
-  return Array.from(arr).map(b => b % 10).join('');
-}
+    // For IPv6, collapse to /64 prefix (same as legacy)
+    let myIp = publicIp;
+    if (myIp.includes(':')) {
+      const parts = myIp.split(':');
+      if (parts.length > 4) myIp = parts.slice(0, 4).join(':') + '::/64';
+    }
 
-export function generateShareUrl(roomCode, myPeerId) {
-  const base = window.location.origin + window.location.pathname;
-  return `${base}?room=${roomCode}${myPeerId ? `&peer=${myPeerId}` : ''}`;
+    const ipHash = await sha256(myIp);
+    return 'discovery_' + ipHash;
+  } catch (e) {
+    console.error('Discovery setup failed:', e);
+    return 'discovery_fallback_global';
+  }
 }
 
 export function getRoomCodeFromUrl() {
@@ -65,19 +59,4 @@ export function getRoomCodeFromUrl() {
 export function getPeerFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return params.get('peer') || null;
-}
-
-export async function probeLanSubnet(onFound) {
-  const dummyPc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-  });
-  
-  dummyPc.createDataChannel('probe');
-  
-  extractLanRoom(dummyPc, onFound);
-  
-  const offer = await dummyPc.createOffer();
-  await dummyPc.setLocalDescription(offer);
-  
-  setTimeout(() => dummyPc.close(), 5000);
 }

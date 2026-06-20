@@ -51,36 +51,22 @@ export function usePeer(identity) {
     }
 
     const initLobby = async () => {
-      let networkId = 'lobby_global'; // shared fallback — all peers see each other
-      
+      // Legacy approach: use public IP API for instant, reliable discovery
+      let networkId = 'discovery_fallback_global';
       try {
-        const { probeLanSubnet } = await import('../core/discovery');
-        const bestHash = await new Promise((resolve) => {
-          let best = null;
-          probeLanSubnet((roomId, type) => {
-            if (type === 'lan') {
-              resolve(roomId); // Instant resolve if LAN is found
-            } else if (type === 'wan' && !best) {
-              best = roomId; // Hold wan public IP hash as fallback
-            }
-          });
-          setTimeout(() => resolve(best), 5000); // Wait 5s, return best found
-        });
-        
-        if (bestHash) {
-          networkId = bestHash;
-          console.log(`Joined discovery subnet (${networkId.split('_')[0]}):`, networkId.slice(0, 12) + '...');
-        } else {
-          console.warn('No local subnet or public IP found via ICE, using isolated fallback lobby');
-        }
+        const { getDiscoveryRoomId } = await import('../core/discovery');
+        networkId = await getDiscoveryRoomId();
+        console.log('Joined discovery room:', networkId.slice(0, 20) + '...');
       } catch (e) {
-        console.warn('Failed to run ICE subnet discovery, using isolated random lobby', e);
+        console.warn('Discovery room ID failed, using fallback:', e);
       }
 
       // Join network-specific lobby for presence / online count
       const lobbySig = new SignalingChannel(networkId, identity.peerId);
       lobbySignalingRef.current = lobbySig;
 
+      // Presence sync — handles peer list AND real-time name changes automatically
+      // (This is how the legacy version worked — no separate name_change signals needed)
       lobbySig.on('peers', (peers) => {
         setLanPeers(prev => {
           const wanIds = new Set(prev.filter(p => p.isWan).map(p => p.id));
@@ -89,38 +75,44 @@ export function usePeer(identity) {
           return [...lobbyPeers, ...wanPeers];
         });
         activityLog.setOnlineCount(peers.length + 1);
+
+        // Also update connected peer name from presence if they changed it
+        const conn = activeConnectionRef.current;
+        if (conn) {
+          const peerPresence = peers.find(p => p.id === conn.remotePeerId);
+          if (peerPresence?.displayName) {
+            setConnectedPeerName(peerPresence.displayName);
+          }
+        }
       });
 
       lobbySig.on('signal', async (payload) => {
-      // isLan=true because this lobby was discovered via ICE subnet hash (same physical router)
-      const isLan = networkId.startsWith('lan_');
-      if (payload.type === 'chat_request' && payload.from) {
-        setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer', isLan });
-      } else if (payload.type === 'chat_accept' && payload.from) {
-        if (pendingRequestRef.current === payload.from) {
-          setPendingRequest(null);
-          _startInitiatorConnection(lobbySig, payload.from, isLan);
-        }
-      } else if (payload.type === 'chat_reject' && payload.from) {
-        if (pendingRequestRef.current === payload.from) {
-          setPendingRequest(null);
-          activityLog.log('error', 'Connection rejected', 'User denied the chat request');
-        }
-      } else if (payload.type === 'name_change' && payload.from) {
-        // Peer changed their display name — update the peer list and chat header
-        const newName = payload.displayName;
-        if (newName) {
-          setLanPeers(prev => prev.map(p => p.id === payload.from ? { ...p, displayName: newName } : p));
-          if (activeConnectionRef.current && activeConnectionRef.current.remotePeerId === payload.from) {
-            // Update connected peer name if this is our active peer
-            setConnectedPeerName(newName);
+        const isLan = true; // same public IP = same network
+        if (payload.type === 'chat_request' && payload.from) {
+          setIncomingRequest({ from: payload.from, displayName: payload.displayName || 'Peer', isLan });
+        } else if (payload.type === 'chat_accept' && payload.from) {
+          if (pendingRequestRef.current === payload.from) {
+            setPendingRequest(null);
+            _startInitiatorConnection(lobbySig, payload.from, isLan);
           }
+        } else if (payload.type === 'chat_reject' && payload.from) {
+          if (pendingRequestRef.current === payload.from) {
+            setPendingRequest(null);
+            activityLog.log('error', 'Connection rejected', 'User denied the chat request');
+          }
+        } else if (payload.type === 'name_change' && payload.from) {
+          // Backup: handle name_change broadcasts (WebRTC data channel relays these)
+          const newName = payload.displayName;
+          if (newName) {
+            setLanPeers(prev => prev.map(p => p.id === payload.from ? { ...p, displayName: newName } : p));
+            if (activeConnectionRef.current && activeConnectionRef.current.remotePeerId === payload.from) {
+              setConnectedPeerName(newName);
+            }
+          }
+        } else if (payload.type === 'offer' && payload.from) {
+          _handleIncomingConnection(lobbySig, payload.from, isLan);
         }
-      } else if (payload.type === 'offer' && payload.from) {
-        // Fallback for direct WebRTC offers
-        _handleIncomingConnection(lobbySig, payload.from, isLan);
-      }
-    });
+      });
 
       lobbySig.connect({
         displayName: identity.displayName,
@@ -134,8 +126,6 @@ export function usePeer(identity) {
         setRoomCode(urlRoom);
         activityLog.log('info', 'Room code from URL', urlRoom);
         _joinRoom(urlRoom);
-        // If a peer ID is embedded in the link, auto-send a connection request
-        // after joining the room so the other side can accept immediately
         if (urlPeer) {
           setTimeout(() => {
             activityLog.log('info', 'Auto-connecting via link', urlPeer.slice(0, 8) + '...');
@@ -143,7 +133,7 @@ export function usePeer(identity) {
             const payload = { type: 'chat_request', displayName: identityRef.current?.displayName };
             if (roomSignalingRef.current) roomSignalingRef.current.signal(urlPeer, payload);
             if (lobbySignalingRef.current) lobbySignalingRef.current.signal(urlPeer, payload);
-          }, 2000); // 2s delay to let room subscription settle
+          }, 2000);
         }
       }
     };
@@ -278,6 +268,14 @@ export function usePeer(identity) {
     activityLog.log('info', 'Sending request', `To peer: ${remotePeerId.slice(0, 8)}...`);
     setPendingRequest(remotePeerId);
     
+    // Set a timeout to clear the pending request if ignored
+    setTimeout(() => {
+      if (pendingRequestRef.current === remotePeerId) {
+        setPendingRequest(null);
+        activityLog.log('error', 'Request timeout', 'Peer did not respond in time');
+      }
+    }, 15000);
+    
     // Send on all available channels to ensure delivery
     const payload = { type: 'chat_request', displayName: id.displayName };
     if (roomSignalingRef.current) roomSignalingRef.current.signal(remotePeerId, payload);
@@ -403,19 +401,10 @@ export function usePeer(identity) {
     if (lobbySignalingRef.current) lobbySignalingRef.current.updatePresence(presencePayload);
     if (roomSignalingRef.current) roomSignalingRef.current.updatePresence(presencePayload);
 
-    // Broadcast name change signal to the entire lobby and room so everyone updates in real-time
-    const nameChangePayload = { type: 'name_change', displayName: newName, from: id.peerId };
-    
-    if (lobbySignalingRef.current) {
-      lobbySignalingRef.current.send('signal', nameChangePayload);
-    }
-    if (roomSignalingRef.current) {
-      roomSignalingRef.current.send('signal', nameChangePayload);
-    }
-
     // Also send over WebRTC data channel (fastest) if actively connected
     const conn = activeConnectionRef.current;
     if (conn?.chatChannel?.readyState === 'open') {
+      const nameChangePayload = { type: 'name_change', displayName: newName, from: id.peerId };
       conn.sendChat({ ...nameChangePayload, id: crypto.randomUUID(), timestamp: Date.now() });
     }
   }, [connectedPeer]);
