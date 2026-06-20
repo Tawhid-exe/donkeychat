@@ -27,23 +27,32 @@ export async function getDiscoveryRoomId() {
     let publicIp = 'fallback-ip';
     
     try {
-      const res = await fetch('https://api64.ipify.org?format=json', { 
-        signal: AbortSignal.timeout(3000) // 3s timeout, fail fast
+      // Use IPv4-only endpoint so all devices on same router get same IP
+      // (api64 can return IPv6 on some devices, IPv4 on others → different hashes)
+      const res = await fetch('https://api.ipify.org?format=json', { 
+        signal: AbortSignal.timeout(4000)
       });
       const data = await res.json();
       publicIp = data.ip;
     } catch (ipErr) {
-      console.warn('Failed to retrieve public IP, using fallback:', ipErr);
+      try {
+        // Secondary fallback — try the dual-stack endpoint
+        const res = await fetch('https://api64.ipify.org?format=json', { 
+          signal: AbortSignal.timeout(3000)
+        });
+        const data = await res.json();
+        publicIp = data.ip;
+        // Normalize IPv6 to /64 prefix so devices on same network share a room
+        if (publicIp.includes(':')) {
+          const parts = publicIp.split(':');
+          if (parts.length > 4) publicIp = parts.slice(0, 4).join(':') + '::/64';
+        }
+      } catch {
+        console.warn('Both IP endpoints failed, using fallback channel');
+      }
     }
 
-    // For IPv6, collapse to /64 prefix (same as legacy)
-    let myIp = publicIp;
-    if (myIp.includes(':')) {
-      const parts = myIp.split(':');
-      if (parts.length > 4) myIp = parts.slice(0, 4).join(':') + '::/64';
-    }
-
-    const ipHash = await sha256(myIp);
+    const ipHash = await sha256(publicIp);
     return 'discovery_' + ipHash;
   } catch (e) {
     console.error('Discovery setup failed:', e);

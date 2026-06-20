@@ -73,23 +73,21 @@ export class SignalingChannel {
           this._emit('relay_chat', payload);
         })
         .on('presence', { event: 'sync' }, () => {
-          const state = this.channel.presenceState();
-          const peers = Object.entries(state)
-            .filter(([id]) => id !== this.peerId)
-            .map(([id, data]) => ({ id, ...data[0] }));
-          this._emit('peers', peers);
+          this._broadcastPeers();
         })
-        .on('presence', { event: 'join' }, ({ newPresences }) => {
-          this._emit('peer_join', newPresences);
+        .on('presence', { event: 'join' }, () => {
+          this._broadcastPeers();
         })
-        .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-          this._emit('peer_leave', leftPresences);
+        .on('presence', { event: 'leave' }, () => {
+          this._broadcastPeers();
         });
 
       await this.channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await this.channel.track(presenceData);
           activityLog.log('success', 'Room joined', `Room: ${this.roomId.slice(0, 20)}...`);
+          // Force an immediate peers sync — catches peers already online before we joined
+          this._broadcastPeers();
           this._emit('ready');
         }
       });
@@ -99,6 +97,15 @@ export class SignalingChannel {
     }
 
     return this;
+  }
+
+  _broadcastPeers() {
+    if (!this.channel) return;
+    const state = this.channel.presenceState();
+    const peers = Object.entries(state)
+      .filter(([id]) => id !== this.peerId)
+      .map(([id, data]) => ({ id, ...data[0] }));
+    this._emit('peers', peers);
   }
 
   async send(event, payload) {
