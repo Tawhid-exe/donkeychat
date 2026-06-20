@@ -396,15 +396,24 @@ export function usePeer(identity) {
       } catch (e) {}
     }
 
-    // Update presence so peer list shows the new name
+    // Update presence so peer list shows the new name (primary sync)
     const presencePayload = { displayName: newName, os: id.os };
     if (lobbySignalingRef.current) lobbySignalingRef.current.updatePresence(presencePayload);
     if (roomSignalingRef.current) roomSignalingRef.current.updatePresence(presencePayload);
 
+    // Broadcast name change signal explicitly (fallback/immediate sync)
+    const nameChangePayload = { type: 'name_change', displayName: newName, from: id.peerId };
+    
+    if (lobbySignalingRef.current) {
+      lobbySignalingRef.current.send('signal', nameChangePayload);
+    }
+    if (roomSignalingRef.current) {
+      roomSignalingRef.current.send('signal', nameChangePayload);
+    }
+
     // Also send over WebRTC data channel (fastest) if actively connected
     const conn = activeConnectionRef.current;
     if (conn?.chatChannel?.readyState === 'open') {
-      const nameChangePayload = { type: 'name_change', displayName: newName, from: id.peerId };
       conn.sendChat({ ...nameChangePayload, id: crypto.randomUUID(), timestamp: Date.now() });
     }
   }, [connectedPeer]);

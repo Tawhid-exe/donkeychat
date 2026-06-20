@@ -91,33 +91,31 @@ export class Sender {
     try {
       if (!this.meta) await this.prepareMeta(file);
 
-      const stream = file.stream();
-      const reader = stream.getReader();
-      let seq = 0;
-      let bytesSent = 0;
+      const CHUNK_SIZE = this.meta.chunkSize; // 16KB
+      const totalChunks = this.meta.totalChunks;
       const rawKey = this.meta.rawKey;
       const shouldCompress = this.meta.compress ?? false;
+      let bytesSent = 0;
 
-      while (true) {
+      for (let seq = 0; seq < totalChunks; seq++) {
         if (this.cancelled) break;
 
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunkBuffer = value.buffer.slice(
-          value.byteOffset,
-          value.byteOffset + value.byteLength
-        );
+        // Legacy approach: explicit slice to guarantee chunk size
+        const start = seq * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunkBlob = file.slice(start, end);
+        const chunkBuffer = await chunkBlob.arrayBuffer();
 
         const { payload: { encrypted, chunkHash } } = await this.pool.request(
           'PROCESS_CHUNK',
           { rawKey, chunkBuffer, seq, compress: shouldCompress, mimeType: file.type }
         );
 
-        const wire = buildChunkHeader(seq, this.meta.totalChunks, chunkHash, this.transferId, encrypted);
+        const wire = buildChunkHeader(seq, totalChunks, chunkHash, this.transferId, encrypted);
 
         const channel = this.channels[seq % this.channels.length];
 
+        // Backpressure: wait if buffer is full
         while (
           channel.bufferedAmount > BACKPRESSURE_THRESHOLD &&
           !this.cancelled
@@ -127,16 +125,13 @@ export class Sender {
 
         if (!this.cancelled) {
           channel.send(wire);
-          bytesSent += value.byteLength;
-          seq++;
-          this._throttledProgress(bytesSent, file.size, seq, this.meta.totalChunks);
+          bytesSent += chunkBuffer.byteLength;
+          this._throttledProgress(bytesSent, file.size, seq + 1, totalChunks);
         }
       }
 
-      reader.releaseLock();
-
       if (!this.cancelled) {
-        this.onComplete(this.meta.fileHash, this.meta.totalChunks);
+        this.onComplete(this.meta.fileHash, totalChunks);
       }
 
     } catch (err) {
