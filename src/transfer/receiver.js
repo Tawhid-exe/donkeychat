@@ -82,7 +82,8 @@ export class Receiver {
           rawKey: this.meta.rawKey,
           encryptedBuffer: payload,
           seq,
-          expectedHash: chunkHash
+          expectedHash: chunkHash,
+          decompress: this.meta.compress ?? false
         },
         [payload]
       );

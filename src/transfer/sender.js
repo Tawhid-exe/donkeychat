@@ -49,6 +49,7 @@ export class Sender {
     const fileHash = await this._hashFileChunked(file);
 
     const totalChunks = Math.ceil(file.size / (64 * 1024));
+    const shouldCompress = this._shouldCompress(file.type);
 
     const meta = {
       rawKey: keyData.rawKey,
@@ -58,7 +59,8 @@ export class Sender {
       fileName: file.name,
       fileSize: file.size,
       mimeType: file.type,
-      transferId: this.transferId
+      transferId: this.transferId,
+      compress: shouldCompress
     };
 
     this.meta = meta;
@@ -93,7 +95,7 @@ export class Sender {
       let seq = 0;
       let bytesSent = 0;
       const rawKey = this.meta.rawKey;
-      const shouldCompress = false; // Compression disabled — no decompress on receiver side
+      const shouldCompress = this.meta.compress ?? false;
 
       while (true) {
         if (this.cancelled) break;

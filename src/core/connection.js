@@ -36,7 +36,7 @@ async function getIceServers() {
   return servers;
 }
 
-const NUM_TRANSFER_CHANNELS = 1;
+const NUM_TRANSFER_CHANNELS = 4;
 const CHAT_CHANNEL_LABEL = 'blaze-chat';
 
 export class BlazeConnection {

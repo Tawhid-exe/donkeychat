@@ -101,7 +101,8 @@ export class TransferEngine {
         totalChunks: meta.totalChunks,
         mimeType: meta.mimeType,
         fileHash: meta.fileHash,
-        rawKey: meta.rawKey
+        rawKey: meta.rawKey,
+        compress: meta.compress ?? false
       }
     });
 

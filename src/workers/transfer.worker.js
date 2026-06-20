@@ -71,6 +71,25 @@ async function compressChunk(buffer) {
   return result.buffer;
 }
 
+async function decompressChunk(buffer) {
+  const stream = new DecompressionStream('deflate-raw');
+  const writer = stream.writable.getWriter();
+  writer.write(buffer);
+  writer.close();
+  const chunks = [];
+  const reader = stream.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const total = chunks.reduce((acc, c) => acc + c.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  chunks.forEach(c => { result.set(c, offset); offset += c.length; });
+  return result.buffer;
+}
+
 self.onmessage = async ({ data }) => {
   const { type, id, payload } = data;
 
@@ -139,10 +158,15 @@ self.onmessage = async ({ data }) => {
   }
 
   if (type === 'DECRYPT_CHUNK') {
-    const { rawKey, encryptedBuffer, seq, expectedHash } = payload;
+    const { rawKey, encryptedBuffer, seq, expectedHash, decompress } = payload;
 
     const key = await importKey(new Uint8Array(rawKey).buffer);
-    const decrypted = await decryptChunk(key, encryptedBuffer);
+    let decrypted = await decryptChunk(key, encryptedBuffer);
+
+    // Decompress if the sender compressed this chunk
+    if (decompress) {
+      decrypted = await decompressChunk(decrypted);
+    }
 
     const actualHash = await hashChunk(decrypted);
     const valid = actualHash === expectedHash;

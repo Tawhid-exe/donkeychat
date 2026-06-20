@@ -9,34 +9,39 @@ async function sha256(str) {
 }
 
 export function extractLanRoom(pc, onFound) {
-  const seen = new Set();
+  const seenSubnet = new Set();
+  const seenPublic = new Set();
+  let foundSubnet = false;
   
   pc.onicecandidate = async ({ candidate }) => {
     if (!candidate) return;
     const sdp = candidate.candidate;
     
-    // Only look at host candidates (local network), skip srflx (STUN) and relay (TURN)
-    if (sdp.includes('srflx') || sdp.includes('relay')) return;
-    
     // Extract IPv4 address
     const ipv4Match = sdp.match(/(\d{1,3}\.){3}\d{1,3}/);
     if (!ipv4Match) return;
-    
-    const localIP = ipv4Match[0];
+    const ip = ipv4Match[0];
     
     // Skip loopback and link-local
-    if (localIP.startsWith('127.') || localIP.startsWith('169.254.')) return;
-    
-    // Extract subnet (first 3 octets = /24 network)
-    const subnet = localIP.split('.').slice(0, 3).join('.');
-    if (seen.has(subnet)) return;
-    seen.add(subnet);
-    
-    // Hash: 'lan_192.168.1' → deterministic room id for this LAN
-    const roomHash = await sha256('lan_' + subnet);
-    const lanRoomId = 'lan_' + roomHash.slice(0, 24);
-    
-    onFound(lanRoomId, localIP, subnet);
+    if (ip.startsWith('127.') || ip.startsWith('169.254.')) return;
+
+    if (sdp.includes('host')) {
+      // Local network
+      const subnet = ip.split('.').slice(0, 3).join('.');
+      if (seenSubnet.has(subnet)) return;
+      seenSubnet.add(subnet);
+      
+      const roomHash = await sha256('lan_' + subnet);
+      foundSubnet = true;
+      onFound('lan_' + roomHash.slice(0, 24), 'lan');
+    } else if (sdp.includes('srflx')) {
+      // Public IP (behind NAT)
+      if (seenPublic.has(ip) || foundSubnet) return;
+      seenPublic.add(ip);
+      
+      const roomHash = await sha256('wan_' + ip);
+      onFound('wan_' + roomHash.slice(0, 24), 'wan');
+    }
   };
 }
 

@@ -13,8 +13,9 @@
     "@supabase/supabase-js": "^2.107.0",
     "@tailwindcss/vite": "^4.3.0",
     "autoprefixer": "^10.5.0",
+    "jsqr": "^1.4.0",
     "postcss": "^8.5.15",
-    "qrcode-generator": "^2.0.4",
+    "qrcode": "^1.5.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tailwindcss": "^4.3.0"
@@ -23,6 +24,7 @@
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",

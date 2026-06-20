@@ -55,22 +55,23 @@ export function usePeer(identity) {
       
       try {
         const { probeLanSubnet } = await import('../core/discovery');
-        const lanHash = await new Promise((resolve) => {
-          let found = false;
-          probeLanSubnet((roomId) => {
-            found = true;
-            resolve(roomId);
+        const bestHash = await new Promise((resolve) => {
+          let best = null;
+          probeLanSubnet((roomId, type) => {
+            if (type === 'lan') {
+              resolve(roomId); // Instant resolve if LAN is found
+            } else if (type === 'wan' && !best) {
+              best = roomId; // Hold wan public IP hash as fallback
+            }
           });
-          setTimeout(() => {
-            if (!found) resolve(null);
-          }, 3000); // 3 sec timeout for ICE gathering
+          setTimeout(() => resolve(best), 3000); // Wait 3s, return best found
         });
         
-        if (lanHash) {
-          networkId = lanHash;
-          console.log('Joined LAN discovery subnet:', networkId.slice(0, 12) + '...');
+        if (bestHash) {
+          networkId = bestHash;
+          console.log(`Joined discovery subnet (${networkId.split('_')[0]}):`, networkId.slice(0, 12) + '...');
         } else {
-          console.warn('No local subnet found via ICE, using isolated fallback lobby');
+          console.warn('No local subnet or public IP found via ICE, using isolated fallback lobby');
         }
       } catch (e) {
         console.warn('Failed to run ICE subnet discovery, using isolated random lobby', e);
