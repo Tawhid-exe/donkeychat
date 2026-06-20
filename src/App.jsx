@@ -17,11 +17,11 @@ function App() {
     if (identity && !customName) setCustomName(identity.displayName);
   }, [identity?.peerId]);
 
-  // Stable identity — only changes when peerId changes, not when name changes
+  // Stable identity — updates when peerId changes or when the user changes their name
   const stableIdentity = useMemo(() => {
     if (!identity) return null;
-    return { ...identity };
-  }, [identity?.peerId]);
+    return { ...identity, displayName: customName || identity.displayName };
+  }, [identity?.peerId, customName]);
 
   const {
     lanPeers, connectToPeer, activeConnection, connectedPeer, connectedPeerName,

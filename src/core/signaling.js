@@ -106,7 +106,7 @@ export class SignalingChannel {
     const state = this.channel.presenceState();
     const peers = Object.entries(state)
       .filter(([id]) => id !== this.peerId)
-      .map(([id, data]) => ({ id, ...data[0] }));
+      .map(([id, data]) => ({ id, ...data[data.length - 1] }));
     this._emit('peers', peers);
   }
 
