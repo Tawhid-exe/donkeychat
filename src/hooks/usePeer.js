@@ -64,7 +64,7 @@ export function usePeer(identity) {
               best = roomId; // Hold wan public IP hash as fallback
             }
           });
-          setTimeout(() => resolve(best), 3000); // Wait 3s, return best found
+          setTimeout(() => resolve(best), 5000); // Wait 5s, return best found
         });
         
         if (bestHash) {

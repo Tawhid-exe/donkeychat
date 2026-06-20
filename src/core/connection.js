@@ -185,6 +185,12 @@ export class BlazeConnection {
       }
     });
 
+    this.signaling.on('relay_chat', (payload) => {
+      if (payload.from === this.remotePeerId) {
+        this._emit('chat_message', payload);
+      }
+    });
+
     if (this.isInitiator) {
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
@@ -269,6 +275,9 @@ export class BlazeConnection {
   sendChat(message) {
     if (this.chatChannel?.readyState === 'open') {
       this.chatChannel.send(JSON.stringify(message));
+    } else if (this.signaling) {
+      // Fallback for Tier 3 and 4 (Relay / Async)
+      this.signaling.sendRelayChat({ ...message, to: this.remotePeerId });
     }
   }
 

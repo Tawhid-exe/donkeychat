@@ -1,4 +1,4 @@
-const CHUNK_SIZE = 64 * 1024;
+const CHUNK_SIZE = 16 * 1024;
 
 async function generateFileKey() {
   return crypto.subtle.generateKey(
@@ -55,7 +55,7 @@ async function hashChunk(chunkBuffer) {
 async function compressChunk(buffer) {
   const stream = new CompressionStream('deflate-raw');
   const writer = stream.writable.getWriter();
-  writer.write(buffer);
+  writer.write(new Uint8Array(buffer));
   writer.close();
   const chunks = [];
   const reader = stream.readable.getReader();
@@ -74,7 +74,7 @@ async function compressChunk(buffer) {
 async function decompressChunk(buffer) {
   const stream = new DecompressionStream('deflate-raw');
   const writer = stream.writable.getWriter();
-  writer.write(buffer);
+  writer.write(new Uint8Array(buffer));
   writer.close();
   const chunks = [];
   const reader = stream.readable.getReader();

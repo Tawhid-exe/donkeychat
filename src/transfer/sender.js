@@ -48,14 +48,15 @@ export class Sender {
     // Chunked hash — stream through file in 2MB pieces
     const fileHash = await this._hashFileChunked(file);
 
-    const totalChunks = Math.ceil(file.size / (64 * 1024));
+    const CHUNK_SIZE = 16 * 1024;
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const shouldCompress = this._shouldCompress(file.type);
 
     const meta = {
       rawKey: keyData.rawKey,
       fileHash,
       totalChunks,
-      chunkSize: 64 * 1024,
+      chunkSize: CHUNK_SIZE,
       fileName: file.name,
       fileSize: file.size,
       mimeType: file.type,

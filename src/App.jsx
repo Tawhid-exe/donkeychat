@@ -107,28 +107,7 @@ function App() {
     };
   }, [activeConnection, connectedPeer]);
 
-  // Relay chat handler — works via Supabase broadcast (fallback)
-  useEffect(() => {
-    if (!connectedPeer) return;
-    const sig = getSignaling();
-    if (!sig) return;
-
-    const relayHandler = (payload) => {
-      if (payload.from === connectedPeer && payload.msgId && !seenMsgIds.current.has(payload.msgId)) {
-        seenMsgIds.current.add(payload.msgId);
-        globalMessageStore.addMessage({
-          id: payload.msgId,
-          text: payload.text,
-          senderId: payload.from,
-          timestamp: payload.timestamp || Date.now(),
-          type: 'text'
-        });
-      }
-    };
-
-    sig.on('relay_chat', relayHandler);
-    return () => sig.off('relay_chat', relayHandler);
-  }, [connectedPeer, getSignaling]);
+  // Relay chat is now handled natively by activeConnection emitting 'chat_message'
 
   // Auto-scroll
   useEffect(() => {
@@ -145,14 +124,8 @@ function App() {
     });
     seenMsgIds.current.add(msg.id); // Add own message to seen
 
-    // Always send via Relay as a reliable fallback
-    const sig = getSignaling();
-    if (sig) {
-      sig.sendRelayChat({ text: inputText, to: connectedPeer, msgId: msg.id, timestamp: msg.timestamp });
-    }
-
-    // Try WebRTC data channel if open
-    if (activeConnection?.chatChannel?.readyState === 'open') {
+    // Try WebRTC data channel if open, else fallback to Relay internally
+    if (activeConnection) {
       activeConnection.sendChat(msg);
     }
 
@@ -164,9 +137,9 @@ function App() {
   const processFile = useCallback(async (file) => {
     if (!connectedPeer) return;
 
-    // Must have an active WebRTC connection with open transfer channel for file sending
-    if (!activeConnection?.transferChannels?.length || activeConnection.transferChannels[0]?.readyState !== 'open') {
-      alert('File transfer requires a direct P2P connection. Please wait for WebRTC to connect (the connection indicator should show LAN Direct, WAN P2P, or TURN Relay).');
+    // Rely on transferEngine to handle connection waiting and tier fallbacks
+    if (!activeConnection) {
+      alert('You must be connected to a peer to send files.');
       return;
     }
 
