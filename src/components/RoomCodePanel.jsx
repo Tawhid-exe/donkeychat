@@ -28,8 +28,8 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
   };
 
   const handleJoin = () => {
-    const code = joinInput.trim().toUpperCase();
-    if (code.length >= 4) {
+    const code = joinInput.trim();
+    if (code.length === 6) {
       onJoinRoom(code);
       setJoinInput('');
     }
@@ -130,11 +130,16 @@ export function RoomCodePanel({ roomCode, onCreateRoom, onJoinRoom, connectToPee
             <input
               autoFocus
               value={joinInput}
-              onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
+              onChange={(e) => {
+                // Allow digits only
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                setJoinInput(digits);
+              }}
               onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
               placeholder="000000"
+              inputMode="numeric"
               className="flex-1 min-w-0 bg-[#09090b] text-[#fafafa] rounded-xl px-4 py-3 border border-[#3f3f46] focus:outline-none focus:border-[#ef4444] focus:ring-1 focus:ring-[#ef4444]/50 font-mono tracking-[0.4em] text-center text-lg placeholder:tracking-normal placeholder:text-center"
-              maxLength={8}
+              maxLength={6}
             />
             <button
               onClick={handleJoin}

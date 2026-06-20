@@ -24,7 +24,7 @@ function App() {
   }, [identity?.peerId]);
 
   const {
-    lanPeers, connectToPeer, activeConnection, connectedPeer,
+    lanPeers, connectToPeer, activeConnection, connectedPeer, connectedPeerName,
     connectionTier, transferEngine, roomCode, createRoom, joinRoom,
     getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, updateNickname, endChat
   } = usePeer(stableIdentity);
@@ -79,6 +79,11 @@ function App() {
           timestamp: Date.now()
         });
         return;
+      }
+      if (msg.type === 'name_change') {
+        // Real-time peer name update via WebRTC data channel
+        // usePeer handles state update via its own handler, but we refresh from msg directly
+        return; // usePeer's signal handler updates connectedPeerName state
       }
       if (msg.type === 'file_ready' || msg.type === 'file_rejected') return;
       if (msg.type === 'file_incoming') {
@@ -159,6 +164,12 @@ function App() {
   const processFile = useCallback(async (file) => {
     if (!connectedPeer) return;
 
+    // Must have an active WebRTC connection with open transfer channel for file sending
+    if (!activeConnection?.transferChannels?.length || activeConnection.transferChannels[0]?.readyState !== 'open') {
+      alert('File transfer requires a direct P2P connection. Please wait for WebRTC to connect (the connection indicator should show LAN Direct, WAN P2P, or TURN Relay).');
+      return;
+    }
+
     const MAX_SIZE = 100 * 1024 * 1024; // 100MB
     if (file.size > MAX_SIZE) {
       alert(`File is too large (${(file.size / 1e6).toFixed(1)}MB). Limit is 100MB for optimal performance.`);
@@ -198,7 +209,7 @@ function App() {
     }, stableIdentity?.peerId, blobUrl));
 
     sendFile(fileToSend, connectedPeer, transferId);
-  }, [connectedPeer, stableIdentity, sendFile]);
+  }, [connectedPeer, stableIdentity, sendFile, activeConnection]);
 
   const handleFileSelect = (e) => {
     if (!e.target.files.length) return;
@@ -234,7 +245,7 @@ function App() {
   };
   const tierInfo = TIER_DISPLAY[connectionTier] || { label: 'Relay', color: '#a1a1aa', dot: 'bg-[#a1a1aa]' };
   const supabaseReady = isSupabaseConfigured();
-  const peerName = lanPeers.find(p => p.id === connectedPeer)?.displayName || 'Peer';
+  const peerName = connectedPeerName;
 
   // ════════════════════════════════════════════════════
   //  RENDER

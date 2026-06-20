@@ -41,12 +41,10 @@ export function extractLanRoom(pc, onFound) {
 }
 
 export function generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars (0,O,1,I)
-  let code = '';
+  // Pure numeric 6-digit code: 000000 – 999999
   const arr = new Uint8Array(6);
   crypto.getRandomValues(arr);
-  arr.forEach(b => { code += chars[b % chars.length]; });
-  return code;
+  return Array.from(arr).map(b => b % 10).join('');
 }
 
 export function generateShareUrl(roomCode, myPeerId) {

@@ -8,6 +8,7 @@ export function usePeer(identity) {
   const [activeConnection, setActiveConnection] = useState(null);
   const activeConnectionRef = useRef(null);
   const [connectedPeer, setConnectedPeer] = useState(null);
+  const [connectedPeerName, setConnectedPeerName] = useState('Peer');
   const [connectionTier, setConnectionTier] = useState(null);
   const [transferEngine, setTransferEngine] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
@@ -19,6 +20,8 @@ export function usePeer(identity) {
   const roomSignalingRef = useRef(null);
   const identityRef = useRef(null);
   const pendingRequestRef = useRef(null);
+  const incomingRequestRef = useRef(null);
+  const lanPeersRef = useRef([]);
   const initedRef = useRef(false);
 
   // Keep refs in sync
@@ -28,6 +31,12 @@ export function usePeer(identity) {
   useEffect(() => {
     pendingRequestRef.current = pendingRequest;
   }, [pendingRequest]);
+  useEffect(() => {
+    incomingRequestRef.current = incomingRequest;
+  }, [incomingRequest]);
+  useEffect(() => {
+    lanPeersRef.current = lanPeers;
+  }, [lanPeers]);
 
   // ── Discovery: join global lobby once ──
   useEffect(() => {
@@ -42,7 +51,7 @@ export function usePeer(identity) {
     }
 
     const initLobby = async () => {
-      let networkId = `lobby_local_${Math.random().toString(36).slice(2,10)}`;
+      let networkId = 'lobby_global'; // shared fallback — all peers see each other
       
       try {
         const { probeLanSubnet } = await import('../core/discovery');
@@ -95,6 +104,16 @@ export function usePeer(identity) {
         if (pendingRequestRef.current === payload.from) {
           setPendingRequest(null);
           activityLog.log('error', 'Connection rejected', 'User denied the chat request');
+        }
+      } else if (payload.type === 'name_change' && payload.from) {
+        // Peer changed their display name — update the peer list and chat header
+        const newName = payload.displayName;
+        if (newName) {
+          setLanPeers(prev => prev.map(p => p.id === payload.from ? { ...p, displayName: newName } : p));
+          if (activeConnectionRef.current) {
+            // Update connected peer name if this is our active peer
+            setConnectedPeerName(newName);
+          }
         }
       } else if (payload.type === 'offer' && payload.from) {
         // Fallback for direct WebRTC offers
@@ -179,6 +198,7 @@ export function usePeer(identity) {
         activeConnectionRef.current = null;
         setActiveConnection(null);
         setConnectedPeer(null);
+        setConnectedPeerName('Peer');
         setConnectionTier(null);
       }, 3000);
     });
@@ -187,7 +207,16 @@ export function usePeer(identity) {
 
     setActiveConnection(conn);
     setConnectedPeer(remotePeerId);
+    // Use ref to get current displayName (avoids stale closure issue)
+    setConnectedPeerName(incomingRequestRef.current?.displayName || 'Peer');
     setTransferEngine(engine);
+
+    // Also handle name_change coming through WebRTC data channel
+    conn.on('chat_message', (msg) => {
+      if (msg.type === 'name_change' && msg.displayName) {
+        setConnectedPeerName(msg.displayName);
+      }
+    });
   }, []);
 
   // ── Join a room by code ──
@@ -219,6 +248,12 @@ export function usePeer(identity) {
         if (pendingRequestRef.current === payload.from) {
           setPendingRequest(null);
           activityLog.log('error', 'Connection rejected', 'User denied the chat request');
+        }
+      } else if (payload.type === 'name_change' && payload.from) {
+        const newName = payload.displayName;
+        if (newName) {
+          setLanPeers(prev => prev.map(p => p.id === payload.from ? { ...p, displayName: newName } : p));
+          if (activeConnectionRef.current) setConnectedPeerName(newName);
         }
       } else if (payload.type === 'offer' && payload.from) {
         _handleIncomingConnection(sig, payload.from);
@@ -294,6 +329,7 @@ export function usePeer(identity) {
         activeConnectionRef.current = null;
         setActiveConnection(null);
         setConnectedPeer(null);
+        setConnectedPeerName('Peer');
         setConnectionTier(null);
       }, 3000);
     });
@@ -302,7 +338,16 @@ export function usePeer(identity) {
 
     setActiveConnection(conn);
     setConnectedPeer(remotePeerId);
+    // Resolve initial peer name from lanPeers (via ref to avoid stale closure)
+    setConnectedPeerName(lanPeersRef.current.find(p => p.id === remotePeerId)?.displayName || 'Peer');
     setTransferEngine(engine);
+
+    // Handle name_change coming through WebRTC data channel
+    conn.on('chat_message', (msg) => {
+      if (msg.type === 'name_change' && msg.displayName) {
+        setConnectedPeerName(msg.displayName);
+      }
+    });
 
     return conn;
   }, []);
@@ -340,11 +385,25 @@ export function usePeer(identity) {
   const updateNickname = useCallback((newName) => {
     const id = identityRef.current;
     if (!id) return;
-    // Track full presence payload so the 'peers' sync handler sees the updated name
+    // Update presence so peer list shows the new name
     const presencePayload = { displayName: newName, os: id.os };
     if (lobbySignalingRef.current) lobbySignalingRef.current.updatePresence(presencePayload);
     if (roomSignalingRef.current) roomSignalingRef.current.updatePresence(presencePayload);
-  }, []);
+
+    // Broadcast name change signal so the CONNECTED peer's header updates in real-time
+    const conn = activeConnectionRef.current;
+    const remotePeer = connectedPeer;
+    if (remotePeer) {
+      const nameChangePayload = { type: 'name_change', displayName: newName };
+      // Send over WebRTC data channel (fastest)
+      if (conn?.chatChannel?.readyState === 'open') {
+        conn.sendChat({ ...nameChangePayload, id: crypto.randomUUID(), timestamp: Date.now() });
+      }
+      // Also send via signaling relay as fallback
+      if (lobbySignalingRef.current) lobbySignalingRef.current.signal(remotePeer, nameChangePayload);
+      if (roomSignalingRef.current) roomSignalingRef.current.signal(remotePeer, nameChangePayload);
+    }
+  }, [connectedPeer]);
 
   // ── Create a room ──
   const createRoom = useCallback(() => {
@@ -394,6 +453,7 @@ export function usePeer(identity) {
       activeConnectionRef.current = null;
       setActiveConnection(null);
       setConnectedPeer(null);
+      setConnectedPeerName('Peer');
       setConnectionTier(null);
       setTransferEngine(null);
     }, 2000);
@@ -404,6 +464,7 @@ export function usePeer(identity) {
     connectToPeer,
     activeConnection,
     connectedPeer,
+    connectedPeerName,
     connectionTier,
     transferEngine,
     roomCode,
