@@ -92,12 +92,13 @@ export function ActivityLogPanel({ isChatMode = false }) {
 
       {/* Dropdown panel */}
       {isOpen && (
-        <div className={`absolute mt-2 w-80 max-h-[60vh] bg-[#09090b]/98 backdrop-blur-xl border border-[#3f3f46] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] overflow-hidden animate-slideDown ${isChatMode ? 'right-0 top-full' : 'left-0 top-full'}`}>
-          <div className="px-4 py-3 border-b border-[#3f3f46] flex items-center justify-between">
+        <div className={`absolute mt-2 w-[350px] max-h-[80vh] flex flex-col bg-[#09090b]/98 backdrop-blur-xl border border-[#3f3f46] rounded-xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),0_0_40px_rgba(239,68,68,0.1)] overflow-hidden animate-slideDown ${isChatMode ? 'right-0 top-full' : 'left-0 top-full'}`}>
+          <div className="px-4 py-3 border-b border-[#3f3f46] flex items-center justify-between flex-shrink-0">
             <h3 className="text-sm font-semibold text-[#fafafa]">Activity Log</h3>
             <span className="text-[10px] text-[#a1a1aa]">{entries.length} entries</span>
           </div>
-          <div className="overflow-y-auto max-h-[calc(60vh-48px)] custom-scrollbar">
+          
+          <div className="overflow-y-auto max-h-[35vh] custom-scrollbar flex-shrink-0">
             {entries.length === 0 ? (
               <div className="px-4 py-8 text-center text-[#a1a1aa] text-sm">
                 No activity yet
@@ -126,6 +127,29 @@ export function ActivityLogPanel({ isChatMode = false }) {
                 );
               })
             )}
+          </div>
+
+          {/* Mini Terminal View */}
+          <div className="bg-black border-t-2 border-[#27272a] p-3 h-[200px] overflow-y-auto custom-scrollbar font-mono text-[10px] flex-shrink-0 relative">
+            <div className="text-emerald-500 mb-2 border-b border-[#3f3f46] pb-1 flex justify-between items-center sticky top-0 bg-black z-10">
+              <span>user@donkeychat:~$ tail -f debug.log</span>
+            </div>
+            <div className="flex flex-col-reverse">
+              {entries.length === 0 ? (
+                <div className="text-gray-500">[System] Awaiting backend events...</div>
+              ) : (
+                [...entries].reverse().map(entry => (
+                  <div key={`term-${entry.id}`} className="whitespace-pre-wrap mb-1 leading-tight flex gap-2 hover:bg-white/5 p-0.5 rounded">
+                    <span className="text-gray-500 flex-shrink-0">[{new Date(entry.timestamp).toISOString().split('T')[1].slice(0, 12)}]</span>
+                    <span className="flex-1 min-w-0 break-words">
+                      <span className={entry.level === 'error' ? 'text-red-500 font-bold' : entry.level === 'warn' ? 'text-yellow-400' : entry.level === 'success' ? 'text-emerald-400' : 'text-blue-400'}>[{entry.level.toUpperCase()}]</span>{' '}
+                      <span className="text-gray-300">{entry.title}</span>
+                      {entry.detail && <span className="text-gray-500 ml-1">→ {entry.detail}</span>}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
