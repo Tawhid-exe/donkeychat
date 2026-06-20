@@ -49,6 +49,8 @@ export class SignalingChannel {
   }
 
   async connect(presenceData = {}) {
+    this.presenceData = presenceData;
+
     if (!supabase) {
       activityLog.log('error', 'Signaling failed', 'Supabase not configured');
       setTimeout(() => this._emit('ready'), 100);
@@ -84,7 +86,7 @@ export class SignalingChannel {
 
       await this.channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await this.channel.track(presenceData);
+          await this.channel.track(this.presenceData);
           activityLog.log('success', 'Room joined', `Room: ${this.roomId.slice(0, 20)}...`);
           // Force an immediate peers sync — catches peers already online before we joined
           this._broadcastPeers();
@@ -120,6 +122,7 @@ export class SignalingChannel {
   async updatePresence(presenceData) {
     if (!this.channel) return;
     try {
+      this.presenceData = presenceData;
       await this.channel.track(presenceData);
     } catch (e) {
       console.warn('Failed to update presence', e);
