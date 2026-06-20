@@ -65,7 +65,7 @@ export class SignalingChannel {
 
       this.channel
         .on('broadcast', { event: 'signal' }, ({ payload }) => {
-          if (payload.to !== this.peerId) return;
+          if (payload.to && payload.to !== this.peerId) return;
           this._emit('signal', payload);
         })
         .on('broadcast', { event: 'chat' }, ({ payload }) => {
