@@ -60,3 +60,20 @@ export function getPeerFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return params.get('peer') || null;
 }
+
+/** Generate a random 6-digit numeric room code */
+export function generateRoomCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+/**
+ * Build a shareable URL for a room (and optionally a specific peer).
+ * e.g. https://donkeychat.pages.dev/?room=123456&peer=abc123
+ */
+export function generateShareUrl(roomCode, peerId = null) {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('room', roomCode);
+  if (peerId) url.searchParams.set('peer', peerId);
+  return url.toString();
+}
