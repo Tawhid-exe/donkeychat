@@ -111,7 +111,7 @@ export function usePeer(identity) {
         const newName = payload.displayName;
         if (newName) {
           setLanPeers(prev => prev.map(p => p.id === payload.from ? { ...p, displayName: newName } : p));
-          if (activeConnectionRef.current) {
+          if (activeConnectionRef.current && activeConnectionRef.current.remotePeerId === payload.from) {
             // Update connected peer name if this is our active peer
             setConnectedPeerName(newName);
           }
@@ -386,23 +386,37 @@ export function usePeer(identity) {
   const updateNickname = useCallback((newName) => {
     const id = identityRef.current;
     if (!id) return;
+    
+    // Update local state and storage
+    id.displayName = newName;
+    const storedStr = localStorage.getItem('blaze_identity');
+    if (storedStr) {
+      try {
+        const stored = JSON.parse(storedStr);
+        stored.displayName = newName;
+        localStorage.setItem('blaze_identity', JSON.stringify(stored));
+      } catch (e) {}
+    }
+
     // Update presence so peer list shows the new name
     const presencePayload = { displayName: newName, os: id.os };
     if (lobbySignalingRef.current) lobbySignalingRef.current.updatePresence(presencePayload);
     if (roomSignalingRef.current) roomSignalingRef.current.updatePresence(presencePayload);
 
-    // Broadcast name change signal so the CONNECTED peer's header updates in real-time
+    // Broadcast name change signal to the entire lobby and room so everyone updates in real-time
+    const nameChangePayload = { type: 'name_change', displayName: newName, from: id.peerId };
+    
+    if (lobbySignalingRef.current) {
+      lobbySignalingRef.current.send('signal', nameChangePayload);
+    }
+    if (roomSignalingRef.current) {
+      roomSignalingRef.current.send('signal', nameChangePayload);
+    }
+
+    // Also send over WebRTC data channel (fastest) if actively connected
     const conn = activeConnectionRef.current;
-    const remotePeer = connectedPeer;
-    if (remotePeer) {
-      const nameChangePayload = { type: 'name_change', displayName: newName };
-      // Send over WebRTC data channel (fastest)
-      if (conn?.chatChannel?.readyState === 'open') {
-        conn.sendChat({ ...nameChangePayload, id: crypto.randomUUID(), timestamp: Date.now() });
-      }
-      // Also send via signaling relay as fallback
-      if (lobbySignalingRef.current) lobbySignalingRef.current.signal(remotePeer, nameChangePayload);
-      if (roomSignalingRef.current) roomSignalingRef.current.signal(remotePeer, nameChangePayload);
+    if (conn?.chatChannel?.readyState === 'open') {
+      conn.sendChat({ ...nameChangePayload, id: crypto.randomUUID(), timestamp: Date.now() });
     }
   }, [connectedPeer]);
 
