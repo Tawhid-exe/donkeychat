@@ -16,7 +16,7 @@ export class WorkerPool {
       };
       w.onerror = (e) => {
         console.error('Worker error:', e);
-        for (const [id, handler] of this.pending.entries()) {
+        for (const [, handler] of this.pending.entries()) {
           handler.reject(e);
         }
         this.pending.clear();

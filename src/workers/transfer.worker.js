@@ -49,7 +49,7 @@ async function hashChunk(chunkBuffer) {
   const h = await crypto.subtle.digest('SHA-256', chunkBuffer);
   return Array.from(new Uint8Array(h))
     .map(b => b.toString(16).padStart(2, '0'))
-    .join('').slice(0, 16);
+    .join('');
 }
 
 async function compressChunk(buffer) {
@@ -148,12 +148,12 @@ self.onmessage = async ({ data }) => {
     }
 
     const encrypted = await encryptChunk(key, processedBuffer);
-    const chunkHash = await hashChunk(chunkBuffer);
+    const fullChunkHash = await hashChunk(chunkBuffer);
 
     self.postMessage({
       type: 'CHUNK_READY',
       id,
-      payload: { encrypted, seq, chunkHash }
+      payload: { encrypted, seq, chunkHash: fullChunkHash.slice(0, 16), fullChunkHash }
     }, [encrypted]);
   }
 
@@ -169,12 +169,12 @@ self.onmessage = async ({ data }) => {
     }
 
     const actualHash = await hashChunk(decrypted);
-    const valid = actualHash === expectedHash;
+    const valid = actualHash.slice(0, 16) === expectedHash;
 
     self.postMessage({
       type: 'CHUNK_DECRYPTED',
       id,
-      payload: { decrypted, seq, valid }
+      payload: { decrypted, seq, valid, fullChunkHash: actualHash }
     }, [decrypted]);
   }
 };

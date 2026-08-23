@@ -18,4 +18,11 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // Backend relay server runs on Node, not the browser
+    files: ['server/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

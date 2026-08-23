@@ -5,10 +5,16 @@ import { formatFileSize } from '../chat/messages';
 export function FileTransfer({ meta, onCancel, onAccept, onDecline, status, declined, error, completed }) {
   const { barRef, textRef } = useTransferProgress(meta.transferId);
   const isPending = status === 'pending_accept';
+  const isMedia = meta.fileName && /\.(jpe?g|png|gif|webp|mp4|mov|webm|avi|mkv|heic)$/i.test(meta.fileName);
 
   return (
-    <div className={`rounded-lg p-3 w-full ${declined ? 'opacity-50' : ''}`}>
-      <div className="flex items-center gap-3 mb-2">
+    <div className={`relative rounded-lg p-3 w-full ${declined ? 'opacity-50' : ''}`}>
+      {isMedia && (
+        <div className="absolute top-2 right-2 border border-white/30 text-white/90 text-[8px] font-bold px-1 py-0.5 rounded-sm bg-black/20 tracking-wider">
+          HD
+        </div>
+      )}
+      <div className="flex items-center gap-3 mb-2 pr-6">
         <div className={`w-9 h-9 ${completed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-[#ef4444]/20 text-[#ef4444]'} rounded-lg flex items-center justify-center flex-shrink-0`}>
           {completed ? (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,6 +50,15 @@ export function FileTransfer({ meta, onCancel, onAccept, onDecline, status, decl
               Decline
             </button>
           )}
+        </div>
+      ) : status === 'active' && onCancel ? (
+        <div className="flex gap-2 w-full mt-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-1 bg-[#ef4444]/10 hover:bg-[#ef4444]/20 text-[#ef4444] rounded-lg text-[11px] font-semibold transition-colors border border-[#ef4444]/20"
+          >
+            Cancel Transfer
+          </button>
         </div>
       ) : (
         <div className="relative h-1 w-full bg-white/10 rounded-full overflow-hidden">

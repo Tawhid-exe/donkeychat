@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useIdentity } from './hooks/useIdentity';
 import { usePeer } from './hooks/usePeer';
 import { useTransfer } from './hooks/useTransfer';
-import { globalMessageStore, createMessage, createFileMessage, formatFileSize } from './chat/messages';
+import { globalMessageStore, createMessage, createFileMessage } from './chat/messages';
 import { FileTransfer } from './components/FileTransfer';
 import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { RoomCodePanel } from './components/RoomCodePanel';
-import { isSupabaseConfigured } from './core';
-import { activityLog } from './utils/activityLog';
+import { getTransportStatus } from './core';
 
 function App() {
   const identity = useIdentity();
@@ -29,12 +28,11 @@ function App() {
     getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, updateNickname, endChat
   } = usePeer(stableIdentity);
 
-  const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer, declineTransfer } = useTransfer(transferEngine, activeConnection);
+  const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer, declineTransfer, cancelTransfer } = useTransfer(transferEngine, activeConnection);
 
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  const [chatReady, setChatReady] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -86,6 +84,8 @@ function App() {
         return; // usePeer's signal handler updates connectedPeerName state
       }
       if (msg.type === 'file_ready' || msg.type === 'file_rejected') return;
+      // Transfer control-plane messages — consumed by useTransfer/engine routers
+      if (msg.type === 'file_stream_end' || msg.type === 'file_nack' || msg.type === 'file_complete') return;
       if (msg.type === 'file_incoming') {
         handleIncomingFile(msg.meta);
         globalMessageStore.addMessage(createFileMessage(msg.meta, connectedPeer));
@@ -98,7 +98,6 @@ function App() {
 
     handlerRef.current = chatHandler;
     activeConnection.on('chat_message', chatHandler);
-    activeConnection.on('chat_ready', () => setChatReady(true));
 
     return () => {
       if (activeConnection && handlerRef.current) {
@@ -113,6 +112,18 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Attachment menu click-away listener
+  const attachmentRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => {
+      if (attachmentRef.current && !attachmentRef.current.contains(e.target)) {
+        setAttachmentMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // ── Send message (tries WebRTC and Relay simultaneously) ──
   const handleSendMessage = useCallback(() => {
@@ -134,24 +145,38 @@ function App() {
   }, [inputText, connectedPeer, activeConnection, stableIdentity, getSignaling, customName]);
 
   // ── File handling ──
-  const processFile = useCallback(async (file) => {
+  const processFile = useCallback(async (file, isDocument = false) => {
     if (!connectedPeer) return;
 
-    // Rely on transferEngine to handle connection waiting and tier fallbacks
     if (!activeConnection) {
-      alert('You must be connected to a peer to send files.');
+      globalMessageStore.addMessage({
+        id: crypto.randomUUID(),
+        text: 'You must be connected to a peer to send files.',
+        type: 'system',
+        senderId: 'system',
+        timestamp: Date.now()
+      });
       return;
     }
 
     const MAX_SIZE = 100 * 1024 * 1024; // 100MB
     if (file.size > MAX_SIZE) {
-      alert(`File is too large (${(file.size / 1e6).toFixed(1)}MB). Limit is 100MB for optimal performance.`);
+      globalMessageStore.addMessage({
+        id: crypto.randomUUID(),
+        text: `File "${file.name}" is too large (${(file.size / 1e6).toFixed(1)}MB). Limit is 100MB.`,
+        type: 'system',
+        senderId: 'system',
+        timestamp: Date.now()
+      });
       return;
     }
 
     let fileToSend = file;
 
-    if (file.type.startsWith('image/')) {
+    if (isDocument) {
+      // Force it to be treated as a generic document to bypass media rendering on the receiver side
+      fileToSend = new File([file], file.name, { type: 'application/octet-stream' });
+    } else if (file.type.startsWith('image/')) {
       try {
         const bitmap = await createImageBitmap(file);
         const MAX = 1200;
@@ -166,7 +191,7 @@ function App() {
         bitmap.close();
         const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.7));
         fileToSend = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-      } catch (e) { /* use original */ }
+      } catch { /* use original */ }
     }
 
     const transferId = crypto.randomUUID();
@@ -184,9 +209,9 @@ function App() {
     sendFile(fileToSend, connectedPeer, transferId);
   }, [connectedPeer, stableIdentity, sendFile, activeConnection]);
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = (e, isDocument = false) => {
     if (!e.target.files.length) return;
-    processFile(e.target.files[0]);
+    processFile(e.target.files[0], isDocument);
     e.target.value = '';
   };
 
@@ -194,7 +219,7 @@ function App() {
   const handleDragLeave = useCallback((e) => { e.preventDefault(); setIsDragging(false); }, []);
   const handleDrop = useCallback((e) => {
     e.preventDefault(); setIsDragging(false);
-    if (e.dataTransfer.files.length && connectedPeer) processFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length && connectedPeer) processFile(e.dataTransfer.files[0], true); // treat drop as document to avoid unexpected compression
   }, [connectedPeer, processFile]);
 
   // ── Loading screen ──
@@ -216,8 +241,8 @@ function App() {
     3: { label: 'HTTP Relay', color: '#f97316', dot: 'bg-orange-500' },
     4: { label: 'Async', color: '#ef4444', dot: 'bg-red-500' },
   };
-  const tierInfo = TIER_DISPLAY[connectionTier] || { label: 'Relay', color: '#a1a1aa', dot: 'bg-[#a1a1aa]' };
-  const supabaseReady = isSupabaseConfigured();
+  const tierInfo = TIER_DISPLAY[connectionTier] || { label: 'Unknown', color: '#a1a1aa', dot: 'bg-[#a1a1aa]' };
+  const transport = getTransportStatus();
   const peerName = connectedPeerName;
 
   // ════════════════════════════════════════════════════
@@ -280,10 +305,10 @@ function App() {
                 <span className="text-2xl">🫏</span> DonkeyChat
               </h1>
               <p className="text-[#a1a1aa] text-[13px] mt-1">Encrypted P2P network. Zero traces.</p>
-              {supabaseReady && (
-                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Relay Server Online
+              {transport !== 'none' && (
+                <div className={`mt-3 flex items-center justify-center gap-2 text-xs ${transport === 'relay' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  <span className={`w-2 h-2 rounded-full ${transport === 'relay' ? 'bg-amber-500' : 'bg-emerald-500'} animate-pulse`}></span>
+                  {transport === 'supabase' ? 'Relay Server Online' : 'Backup Relay Online'}
                 </div>
               )}
             </div>
@@ -418,32 +443,34 @@ function App() {
                 const isFirst = !prevMsg || prevMsg.senderId !== msg.senderId || prevMsg.type === 'system';
                 const isLast = !nextMsg || nextMsg.senderId !== msg.senderId || nextMsg.type === 'system';
 
-                const isMediaMsg = msg.type === 'file' && msg.blobUrl;
-                // Removed early return for isDeclined to allow FileTransfer to handle it
+                const isMediaMsg = msg.type === 'file' && msg.meta?.mimeType && (msg.meta.mimeType.startsWith('image/') || msg.meta.mimeType.startsWith('video/'));
 
                 // ── MEDIA MESSAGE (image/video) — borderless messenger style ──
                 if (isMediaMsg) {
                   return (
                     <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirst ? 'mt-2' : 'mt-[2px]'}`}>
-                      <div className="relative max-w-[75%] md:max-w-[55%] overflow-hidden rounded-2xl">
-                        {msg.meta?.mimeType?.startsWith('video/') ? (
-                          <video
-                            src={msg.blobUrl}
-                            controls
-                            playsInline
-                            preload="metadata"
-                            className="w-full block rounded-2xl"
-                            style={{ maxHeight: '360px' }}
-                          />
+                      <div className="relative max-w-[75%] md:max-w-[55%] overflow-hidden rounded-2xl bg-[#18181b] border border-[#27272a]">
+                        {msg.blobUrl ? (
+                          msg.meta?.mimeType?.startsWith('video/') ? (
+                            <video src={msg.blobUrl} controls playsInline className="w-full block" style={{ maxHeight: '360px' }} />
+                          ) : (
+                            <button onClick={() => setFullscreenImage(msg.blobUrl)} className="w-full block outline-none">
+                              <img src={msg.blobUrl} alt={msg.meta?.fileName || 'image'} className="w-full block cursor-zoom-in" style={{ maxHeight: '360px', objectFit: 'cover' }} />
+                            </button>
+                          )
                         ) : (
-                          <button onClick={() => setFullscreenImage(msg.blobUrl)} className="w-full block outline-none">
-                            <img
-                              src={msg.blobUrl}
-                              alt={msg.meta?.fileName || 'image'}
-                              className="w-full block rounded-2xl cursor-zoom-in"
-                              style={{ maxHeight: '360px', objectFit: 'cover' }}
+                          <div className="w-56 md:w-64 p-1">
+                            <FileTransfer
+                              meta={msg.meta}
+                              status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
+                              onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
+                              onDecline={msg.meta?.transferId ? () => declineTransfer(msg.meta.transferId) : undefined}
+                              onCancel={msg.meta?.transferId ? () => cancelTransfer(msg.meta.transferId) : undefined}
+                              declined={msg.declined}
+                              error={msg.error}
+                              completed={msg.completed}
                             />
-                          </button>
+                          </div>
                         )}
                         {/* Timestamp overlay on media */}
                         <div className="absolute bottom-1.5 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5">
@@ -474,6 +501,7 @@ function App() {
                             status={activeTransfers.find(t => t.meta?.transferId === msg.meta?.transferId)?.status}
                             onAccept={msg.meta?.transferId ? () => acceptTransfer(msg.meta.transferId) : undefined}
                             onDecline={msg.meta?.transferId ? () => declineTransfer(msg.meta.transferId) : undefined}
+                            onCancel={msg.meta?.transferId ? () => cancelTransfer(msg.meta.transferId) : undefined}
                             declined={msg.declined}
                             error={msg.error}
                             completed={msg.completed}
@@ -501,24 +529,26 @@ function App() {
           {/* Input Bar — Telegram style */}
           <div className="border-t border-[#3f3f46] bg-[#18181b] px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex-shrink-0 relative z-10">
             <div className="flex items-end gap-1.5 w-full mx-auto relative">
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-              <input type="file" accept="image/*,video/*" ref={imageInputRef} onChange={handleFileSelect} className="hidden" />
+              <input type="file" ref={fileInputRef} onChange={(e) => handleFileSelect(e, true)} className="hidden" />
+              <input type="file" accept="image/*,video/*" ref={imageInputRef} onChange={(e) => handleFileSelect(e, false)} className="hidden" />
 
-              {/* Attachment Menu Popover */}
-              {attachmentMenuOpen && (
-                <div className="absolute bottom-12 left-0 mb-2 bg-[#18181b] border border-[#3f3f46] rounded-xl shadow-xl flex flex-col p-1 animate-slideDown origin-bottom-left w-48">
-                  <button onClick={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 text-sm text-[#fafafa] hover:bg-[#27272a] rounded-lg transition-colors text-left">
-                    <span className="text-xl">🖼️</span> Image / Video
-                  </button>
-                  <button onClick={() => { setAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 text-sm text-[#fafafa] hover:bg-[#27272a] rounded-lg transition-colors text-left">
-                    <span className="text-xl">📄</span> Document
-                  </button>
-                </div>
-              )}
+              <div ref={attachmentRef} className="relative flex items-center justify-center">
+                {/* Attachment Menu Popover */}
+                {attachmentMenuOpen && (
+                  <div className="absolute bottom-full left-0 mb-2 bg-[#18181b] border border-[#3f3f46] rounded-xl shadow-xl flex flex-col p-1 animate-slideDown origin-bottom-left w-48 z-50">
+                    <button onClick={() => { setAttachmentMenuOpen(false); imageInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 text-sm text-[#fafafa] hover:bg-[#27272a] rounded-lg transition-colors text-left">
+                      <span className="text-xl">🖼️</span> Image / Video
+                    </button>
+                    <button onClick={() => { setAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex items-center gap-3 px-3 py-2 text-sm text-[#fafafa] hover:bg-[#27272a] rounded-lg transition-colors text-left">
+                      <span className="text-xl">📄</span> Document
+                    </button>
+                  </div>
+                )}
 
-              <button onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)} className="w-10 h-10 flex items-center justify-center text-[#71717a] hover:text-[#ef4444] rounded-full transition-colors flex-shrink-0" title="Attach file">
-                <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-              </button>
+                <button onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)} className="w-10 h-10 flex items-center justify-center text-[#71717a] hover:text-[#ef4444] rounded-full transition-colors flex-shrink-0" title="Attach file">
+                  <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                </button>
+              </div>
 
               <div className="flex-1 bg-[#09090b] rounded-2xl border border-[#3f3f46] overflow-hidden flex items-end min-h-[40px] transition-colors focus-within:border-[#52525b]">
                 <textarea

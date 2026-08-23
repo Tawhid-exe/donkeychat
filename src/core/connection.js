@@ -1,3 +1,12 @@
+import { activityLog } from '../utils/activityLog';
+import {
+  generateEphemeralPair,
+  exportEphemeralPub,
+  deriveSessionKey,
+  encryptJSON,
+  decryptJSON
+} from './e2e';
+
 let cachedIceServers = null;
 
 async function getIceServers() {
@@ -56,6 +65,11 @@ export class BlazeConnection {
     this.lanTimeout = null;
     // Set to 'lan' by usePeer when connecting via LAN discovery channel
     this.expectedTier = null;
+
+    // E2E session state — key derived via ephemeral ECDH over signaling
+    this.sessionKey = null;
+    this._ephemeralPriv = null;
+    this.sessionReady = new Promise((resolve) => { this._resolveSessionReady = resolve; });
   }
 
   // FIX #8: on() now supports multiple handlers per event
@@ -84,9 +98,21 @@ export class BlazeConnection {
     }
   }
 
-  async init() {
+  async init(initialSignal = null) {
     const iceServers = await getIceServers();
     this.pc = new RTCPeerConnection({ iceServers });
+
+    // Initiator generates its ephemeral ECDH pair up front so the offer
+    // can carry the public half; responder derives on offer receipt.
+    if (this.isInitiator) {
+      try {
+        const pair = await generateEphemeralPair();
+        this._ephemeralPriv = pair.privateKey;
+        this._ephemeralPubJwk = await exportEphemeralPub(pair.publicKey);
+      } catch (e) {
+        activityLog.log('error', 'E2E setup failed', e.message);
+      }
+    }
 
     this.pc.onicecandidate = ({ candidate }) => {
       if (!candidate) return;
@@ -161,33 +187,17 @@ export class BlazeConnection {
       };
     }
 
-    this.signaling.on('signal', async (payload) => {
-      if (payload.from !== this.remotePeerId) return;
+    this.signaling.on('signal', (payload) => this._processSignal(payload));
 
-      if (payload.type === 'offer') {
-        await this.pc.setRemoteDescription(new RTCSessionDescription(payload));
-        const answer = await this.pc.createAnswer();
-        await this.pc.setLocalDescription(answer);
-        this.signaling.signal(this.remotePeerId, {
-          type: 'answer',
-          sdp: answer.sdp
-        });
-      }
-
-      if (payload.type === 'answer') {
-        await this.pc.setRemoteDescription(new RTCSessionDescription(payload));
-      }
-
-      if (payload.type === 'ice') {
-        try {
-          await this.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-        } catch (e) {}
-      }
-    });
+    // Process a signal that arrived before our listener was registered
+    // (e.g. an unsolicited offer that triggered this connection's creation).
+    if (initialSignal) {
+      this._processSignal(initialSignal);
+    }
 
     this.signaling.on('relay_chat', (payload) => {
-      if (payload.from === this.remotePeerId) {
-        this._emit('chat_message', payload);
+      if (payload.from === this.remotePeerId && payload.e2e === true) {
+        this._decryptAndEmit(payload);
       }
     });
 
@@ -196,8 +206,79 @@ export class BlazeConnection {
       await this.pc.setLocalDescription(offer);
       this.signaling.signal(this.remotePeerId, {
         type: 'offer',
-        sdp: offer.sdp
+        sdp: offer.sdp,
+        e2ePub: this._ephemeralPubJwk
       });
+    }
+  }
+
+  async _processSignal(payload) {
+    if (payload.from !== this.remotePeerId) return;
+
+    if (payload.type === 'offer') {
+      await this.pc.setRemoteDescription(new RTCSessionDescription(payload));
+
+      // Responder side of the E2E handshake: derive the shared session key
+      // from the initiator's ephemeral pubkey, then reply with our own
+      // (attached to the SDP answer below).
+      if (payload.e2ePub && !this.sessionKey) {
+        try {
+          const pair = await generateEphemeralPair();
+          this._ephemeralPriv = pair.privateKey;
+          this._ephemeralPubJwk = await exportEphemeralPub(pair.publicKey);
+          this.sessionKey = await deriveSessionKey(
+            pair.privateKey, payload.e2ePub, this.signaling.roomId
+          );
+          this._resolveSessionReady(this.sessionKey);
+        } catch (e) {
+          activityLog.log('error', 'E2E key exchange failed', e.message);
+        }
+      }
+
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+      this.signaling.signal(this.remotePeerId, {
+        type: 'answer',
+        sdp: answer.sdp,
+        e2ePub: this._ephemeralPubJwk
+      });
+    }
+
+    if (payload.type === 'answer') {
+      await this.pc.setRemoteDescription(new RTCSessionDescription(payload));
+
+      // Initiator side of the E2E handshake — responder replied with its pub
+      if (payload.e2ePub && !this.sessionKey && this._ephemeralPriv) {
+        try {
+          this.sessionKey = await deriveSessionKey(
+            this._ephemeralPriv, payload.e2ePub, this.signaling.roomId
+          );
+          this._resolveSessionReady(this.sessionKey);
+        } catch (e) {
+          activityLog.log('error', 'E2E key exchange failed', e.message);
+        }
+      }
+    }
+
+    if (payload.type === 'ice') {
+      try {
+        await this.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      } catch {
+        // Stale/duplicate candidates can arrive after connect — safe to drop
+      }
+    }
+  }
+
+  async _decryptAndEmit(envelope) {
+    if (!this.sessionKey) {
+      activityLog.log('warn', 'Encrypted message dropped', 'Session key not ready');
+      return;
+    }
+    try {
+      const msg = await decryptJSON(this.sessionKey, envelope);
+      this._emit('chat_message', msg);
+    } catch {
+      activityLog.log('warn', 'Decryption failed', 'Message could not be authenticated');
     }
   }
 
@@ -233,8 +314,17 @@ export class BlazeConnection {
     channel.binaryType = 'arraybuffer';
     channel.onopen = () => this._emit('chat_ready');
     channel.onmessage = ({ data }) => {
-      const msg = JSON.parse(data);
-      this._emit('chat_message', msg);
+      try {
+        const payload = JSON.parse(data);
+        if (payload?.e2e === true && payload.data) {
+          this._decryptAndEmit(payload);
+        } else {
+          // Enforce confidentiality — reject plaintext chat payloads
+          activityLog.log('warn', 'Rejected unencrypted payload', 'Data channel');
+        }
+      } catch (e) {
+        console.error('Chat message parse error:', e);
+      }
     };
     channel.onerror = (e) => console.error('Chat channel error:', e);
   }
@@ -254,31 +344,55 @@ export class BlazeConnection {
   async _detectTier() {
     try {
       const stats = await this.pc.getStats();
+      let detectedTier = null;
+
       stats.forEach(report => {
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           const local = stats.get(report.localCandidateId);
           if (local?.candidateType === 'host') {
-            this.connectionTier = 0;  // TIER.LAN
-          } else if (local?.candidateType === 'srflx') {
-            this.connectionTier = 1;  // TIER.WAN
+            detectedTier = 0;  // TIER.LAN
+          } else if (local?.candidateType === 'srflx' || local?.candidateType === 'prflx') {
+            detectedTier = 1;  // TIER.WAN
           } else if (local?.candidateType === 'relay') {
-            this.connectionTier = 2;  // TIER.TURN
+            detectedTier = 2;  // TIER.TURN
           }
         }
       });
+
+      // If WebRTC is connected but we couldn't determine the type, default to WAN
+      if (detectedTier === null && this.pc.connectionState === 'connected') {
+        detectedTier = 1;
+      }
+
+      if (detectedTier !== null) {
+        this.connectionTier = detectedTier;
+      }
+
       this._emit('tier_detected', this.connectionTier);
     } catch (e) {
       console.warn('Tier detection failed:', e);
     }
   }
 
-  sendChat(message) {
-    if (this.chatChannel?.readyState === 'open') {
-      this.chatChannel.send(JSON.stringify(message));
-    } else if (this.signaling) {
-      // Fallback for Tier 3 and 4 (Relay / Async)
-      this.signaling.sendRelayChat({ ...message, to: this.remotePeerId });
+  async sendChat(message) {
+    if (!this.sessionKey) {
+      activityLog.log('warn', 'Message dropped', 'E2E session key not ready yet');
+      return;
     }
+    const envelope = await encryptJSON(this.sessionKey, message);
+
+    if (this.chatChannel?.readyState === 'open') {
+      this.chatChannel.send(JSON.stringify(envelope));
+    } else if (this.signaling) {
+      // Fallback for Tier 3 and 4 (Relay / Async) — ciphertext only,
+      // the signaling server never sees plaintext or keys.
+      await this.signaling.sendRelayChat({ ...envelope, to: this.remotePeerId });
+    }
+  }
+
+  // Awaitable for callers that must block until the E2E handshake completes
+  getSessionKey() {
+    return this.sessionReady;
   }
 
   close() {

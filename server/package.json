@@ -1,0 +1,16 @@
+{
+  "name": "donkeychat-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backup signaling relay + chunk store for DonkeyChat (used when Supabase is unavailable)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

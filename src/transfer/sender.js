@@ -1,21 +1,24 @@
 import { WorkerPool } from '../workers/pool';
-import { buildChunkHeader } from './protocol';
+import { buildChunkHeader, computeFileRoot } from './protocol';
 
-const BACKPRESSURE_THRESHOLD = 4 * 1024 * 1024; // 4MB buffer limit
-const SLEEP_MS = 5;
-// FIX #4: Chunked hashing — don't load entire file for hash
-const HASH_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks for hashing
+const BACKPRESSURE_THRESHOLD = 4 * 1024 * 1024; // 4MB buffer limit to prevent SCTP bufferbloat while allowing max speed
+const SLEEP_MS = 2;
+// UPDATE: chunked hashing removed — integrity is now a Merkle-style root
+// computed from per-chunk plaintext hashes during the actual send pass.
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
 export class Sender {
-  constructor(dataChannels, onProgress, onComplete, onError, transferId) {
+  constructor(dataChannels, onProgress, onComplete, onError, transferId, messaging = null) {
     this.channels = dataChannels;
     this.onProgress = onProgress;
     this.onComplete = onComplete;
     this.onError = onError;
+    // messaging: optional { send(msg) } bound to the peer chat path — used
+    // for stream_end / nack / complete control messages
+    this.messaging = messaging;
 
     // Use worker pool instead of single worker for parallel crypto
     this.pool = new WorkerPool(
@@ -24,7 +27,16 @@ export class Sender {
     );
 
     this.cancelled = false;
+    this.disposed = false;
+    this.failed = false;
     this.transferId = transferId || crypto.randomUUID();
+
+    this.chunkHashMap = new Map(); // seq -> full plaintext hash
+    this.localRoot = null;
+    this.file = null;
+
+    this._completeResolve = null;
+    this._completePromise = new Promise((resolve) => { this._completeResolve = resolve; });
 
     // UPDATE 3: Throttle progress at sender — also fires window event for direct DOM updates
     this._lastProgressEmit = 0;
@@ -40,13 +52,9 @@ export class Sender {
     };
   }
 
-  // FIX #4: Chunked file hashing — never loads entire file into RAM
   async prepareMeta(file) {
     // Generate encryption key via worker
     const { payload: keyData } = await this.pool.request('GENERATE_KEY', {});
-
-    // Chunked hash — stream through file in 2MB pieces
-    const fileHash = await this._hashFileChunked(file);
 
     const CHUNK_SIZE = 16 * 1024;
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -54,7 +62,9 @@ export class Sender {
 
     const meta = {
       rawKey: keyData.rawKey,
-      fileHash,
+      // Whole-file hash is unknown until the send pass completes; it is
+      // delivered to the receiver via the file_stream_end control message.
+      fileHash: null,
       totalChunks,
       chunkSize: CHUNK_SIZE,
       fileName: file.name,
@@ -68,77 +78,121 @@ export class Sender {
     return { meta };
   }
 
-  async _hashFileChunked(file) {
-    // Use fast hash for all files to prevent RAM spikes
-    // first 1MB + last 1MB + file size
-    const chunkSize = Math.min(1024 * 1024, file.size);
-    const firstChunk = await file.slice(0, chunkSize).arrayBuffer();
-    const lastChunk = await file.slice(Math.max(0, file.size - chunkSize)).arrayBuffer();
-    const sizeStr = new TextEncoder().encode(file.size.toString());
+  async _processAndSend(seq, totalChunks) {
+    const CHUNK_SIZE = this.meta.chunkSize;
+    const start = seq * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, this.file.size);
+    const chunkBuffer = await this.file.slice(start, end).arrayBuffer();
 
-    const combined = new Uint8Array(firstChunk.byteLength + lastChunk.byteLength + sizeStr.byteLength);
-    combined.set(new Uint8Array(firstChunk), 0);
-    combined.set(new Uint8Array(lastChunk), firstChunk.byteLength);
-    combined.set(sizeStr, firstChunk.byteLength + lastChunk.byteLength);
+    const { payload: { encrypted, chunkHash, fullChunkHash } } = await this.pool.request(
+      'PROCESS_CHUNK',
+      { rawKey: this.meta.rawKey, chunkBuffer, seq, compress: this.meta.compress ?? false, mimeType: this.meta.mimeType }
+    );
 
-    const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    const wire = buildChunkHeader(seq, totalChunks, chunkHash, this.transferId, encrypted);
+    await this._dispatch(wire, seq);
+
+    this.chunkHashMap.set(seq, fullChunkHash);
+  }
+
+  async _dispatch(wire, seq) {
+    const channel = this.channels[seq % this.channels.length];
+
+    // Backpressure: wait if buffer is full (real DataChannels only)
+    let guard = 0;
+    while (
+      typeof channel.bufferedAmount === 'number' &&
+      channel.bufferedAmount > BACKPRESSURE_THRESHOLD &&
+      !this.cancelled
+    ) {
+      await sleep(SLEEP_MS);
+      if (++guard > 15000) throw new Error('Send channel stalled (backpressure timeout)');
+    }
+
+    if (this.cancelled) throw new Error('Transfer cancelled');
+
+    const result = channel.send(wire);
+    // Relay mock channels return promises — surface upload failures and stop
+    if (result && typeof result.catch === 'function') {
+      await result;
+    }
   }
 
   async send(file) {
     try {
       if (!this.meta) await this.prepareMeta(file);
+      this.file = file;
 
-      const CHUNK_SIZE = this.meta.chunkSize; // 16KB
       const totalChunks = this.meta.totalChunks;
-      const rawKey = this.meta.rawKey;
-      const shouldCompress = this.meta.compress ?? false;
       let bytesSent = 0;
 
       for (let seq = 0; seq < totalChunks; seq++) {
         if (this.cancelled) break;
-
-        // Legacy approach: explicit slice to guarantee chunk size
-        const start = seq * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunkBlob = file.slice(start, end);
-        const chunkBuffer = await chunkBlob.arrayBuffer();
-
-        const { payload: { encrypted, chunkHash } } = await this.pool.request(
-          'PROCESS_CHUNK',
-          { rawKey, chunkBuffer, seq, compress: shouldCompress, mimeType: file.type }
-        );
-
-        const wire = buildChunkHeader(seq, totalChunks, chunkHash, this.transferId, encrypted);
-
-        const channel = this.channels[seq % this.channels.length];
-
-        // Backpressure: wait if buffer is full
-        while (
-          channel.bufferedAmount > BACKPRESSURE_THRESHOLD &&
-          !this.cancelled
-        ) {
-          await sleep(SLEEP_MS);
-        }
-
-        if (!this.cancelled) {
-          channel.send(wire);
-          bytesSent += chunkBuffer.byteLength;
-          this._throttledProgress(bytesSent, file.size, seq + 1, totalChunks);
-        }
+        await this._processAndSend(seq, totalChunks);
+        bytesSent += Math.min(this.meta.chunkSize, file.size - seq * this.meta.chunkSize);
+        this._throttledProgress(bytesSent, file.size, seq + 1, totalChunks);
       }
 
       if (!this.cancelled) {
-        this.onComplete(this.meta.fileHash, totalChunks);
+        this.localRoot = await this._computeRoot();
+        this._sendControl({
+          type: 'file_stream_end',
+          transferId: this.transferId,
+          fileHash: this.localRoot
+        });
       }
-
     } catch (err) {
-      this.onError(err);
-    } finally {
-      this.pool.terminate();
+      this.failed = true;
+      if (!this.cancelled) this.onError(err);
     }
+  }
+
+  async _computeRoot() {
+    return computeFileRoot(this.chunkHashMap, this.meta.totalChunks);
+  }
+
+  // ── Control plane (chat path): nacks + completion acks ──
+
+  _sendControl(msg) {
+    if (this.messaging) {
+      Promise.resolve(this.messaging.send(msg)).catch(() => {});
+    }
+  }
+
+  async handleControlMessage(msg) {
+    if (!msg || msg.transferId !== this.transferId || this.cancelled || this.disposed) return;
+
+    if (msg.type === 'file_nack' && Array.isArray(msg.seqs) && !this.failed) {
+      try {
+        for (const seq of msg.seqs) {
+          if (seq >= 0 && seq < this.meta.totalChunks) {
+            await this._processAndSend(seq, this.meta.totalChunks); // fresh IV, same plaintext hash
+          }
+        }
+      } catch (err) {
+        this.failed = true;
+        if (!this.cancelled) this.onError(err);
+        return;
+      }
+      this._sendControl({
+        type: 'file_stream_end',
+        transferId: this.transferId,
+        fileHash: this.localRoot
+      });
+    }
+
+    if (msg.type === 'file_complete') {
+      this._completeResolve(msg.root || null);
+    }
+  }
+
+  /** Resolves with receiver's computed root, or null on timeout */
+  waitComplete(timeoutMs = 45000) {
+    const timer = setTimeout(() => this._completeResolve(null), timeoutMs);
+    return this._completePromise.then((root) => {
+      clearTimeout(timer);
+      return root;
+    });
   }
 
   _shouldCompress(mimeType) {
@@ -149,5 +203,14 @@ export class Sender {
 
   cancel() {
     this.cancelled = true;
+    this._completeResolve(null);
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.pool.terminate();
+    this.chunkHashMap.clear();
+    this.file = null;
   }
 }

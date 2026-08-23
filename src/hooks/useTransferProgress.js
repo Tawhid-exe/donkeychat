@@ -4,12 +4,26 @@ export function useTransferProgress(transferId) {
   const barRef = useRef(null);
   const textRef = useRef(null);
   const lastUpdateRef = useRef(0);
+  const lastBytesRef = useRef(0);
   
   const updateProgress = useCallback((bytesTransferred, totalBytes) => {
     const now = performance.now();
+    const timeDiff = now - lastUpdateRef.current;
     
-    if (now - lastUpdateRef.current < 100) return;
+    if (timeDiff < 100) return;
+    
+    // Calculate Speed
+    const bytesDiff = bytesTransferred - lastBytesRef.current;
+    const speedBps = (bytesDiff / timeDiff) * 1000;
+    let speedStr = '';
+    if (speedBps > 1024 * 1024) {
+      speedStr = `${(speedBps / (1024 * 1024)).toFixed(1)} MB/s`;
+    } else {
+      speedStr = `${(speedBps / 1024).toFixed(1)} KB/s`;
+    }
+
     lastUpdateRef.current = now;
+    lastBytesRef.current = bytesTransferred;
     
     const pct = Math.min(100, (bytesTransferred / totalBytes) * 100);
     const mbTransferred = (bytesTransferred / (1024 * 1024)).toFixed(1);
@@ -20,7 +34,12 @@ export function useTransferProgress(transferId) {
     }
     
     if (textRef.current) {
-      textRef.current.textContent = `${mbTransferred} / ${mbTotal} MB`;
+      // Only show speed if not finished
+      if (pct < 100 && bytesTransferred > 0) {
+        textRef.current.textContent = `${mbTransferred} / ${mbTotal} MB — ${speedStr}`;
+      } else {
+        textRef.current.textContent = `${mbTransferred} / ${mbTotal} MB`;
+      }
     }
   }, []);
 

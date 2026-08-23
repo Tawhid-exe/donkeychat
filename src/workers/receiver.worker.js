@@ -39,7 +39,9 @@ self.onmessage = async ({ data }) => {
     try {
       const root = await navigator.storage.getDirectory();
       await root.removeEntry(transferId);
-    } catch {}
+    } catch {
+      // File already removed or never created — nothing to clean
+    }
     self.postMessage({ type: 'CLEANUP_DONE', id });
   }
 };

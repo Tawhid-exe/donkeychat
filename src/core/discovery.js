@@ -29,12 +29,12 @@ export async function getDiscoveryRoomId() {
     try {
       // Use IPv4-only endpoint so all devices on same router get same IP
       // (api64 can return IPv6 on some devices, IPv4 on others → different hashes)
-      const res = await fetch('https://api.ipify.org?format=json', { 
+      const res = await fetch('https://api.ipify.org?format=json', {
         signal: AbortSignal.timeout(4000)
       });
       const data = await res.json();
       publicIp = data.ip;
-    } catch (ipErr) {
+    } catch {
       try {
         // Secondary fallback — try the dual-stack endpoint
         const res = await fetch('https://api64.ipify.org?format=json', { 

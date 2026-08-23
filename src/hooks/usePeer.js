@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SignalingChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
+import { createSignalingChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isTransportConfigured } from '../core';
 import { TransferEngine, TIER } from '../transfer/engine';
 import { activityLog } from '../utils/activityLog';
 
@@ -45,8 +45,8 @@ export function usePeer(identity) {
 
     activityLog.log('info', 'Identity ready', `${identity.displayName} (${identity.os})`);
 
-    if (!isSupabaseConfigured()) {
-      activityLog.log('warn', 'No Supabase', 'Peer discovery disabled — configure .env.local');
+    if (!isTransportConfigured()) {
+      activityLog.log('warn', 'No backend', 'Peer discovery disabled — configure Supabase or VITE_RELAY_WS_URL');
       return;
     }
 
@@ -62,7 +62,7 @@ export function usePeer(identity) {
       }
 
       // Join network-specific lobby for presence / online count
-      const lobbySig = new SignalingChannel(networkId, identity.peerId);
+      const lobbySig = createSignalingChannel(networkId, identity.peerId);
       lobbySignalingRef.current = lobbySig;
 
       // Presence sync — handles peer list AND real-time name changes automatically
@@ -109,12 +109,14 @@ export function usePeer(identity) {
               setConnectedPeerName(newName);
             }
           }
-        } else if (payload.type === 'offer' && payload.from) {
-          _handleIncomingConnection(lobbySig, payload.from, isLan);
-        }
-      });
+      } else if (payload.type === 'offer' && payload.from) {
+        // Pass the SDP payload through — it arrived before the connection's
+        // own signal listener existed and would otherwise be dropped.
+        _handleIncomingConnection(lobbySig, payload.from, isLan, payload);
+      }
+    });
 
-      lobbySig.connect({
+    lobbySig.connect({
         displayName: identity.displayName,
         os: identity.os
       });
@@ -147,8 +149,19 @@ export function usePeer(identity) {
     };
   }, [identity?.peerId]);
 
+  // ── Tier 4 promotion: WebRTC dead, but a chunk store is reachable ──
+  const _promoteToAsync = useCallback((engine) => {
+    if (!engine || !isTransportConfigured()) return false;
+    if (engine.currentTier === TIER.ASYNC) return true;
+    engine.setTier(TIER.ASYNC);
+    setConnectionTier(TIER.ASYNC);
+    activityLog.log('fallback', 'WebRTC unreachable → Async mode',
+      'Files will transfer via store-and-forward');
+    return true;
+  }, []);
+
   // ── Handle incoming P2P connection (responder side) ──
-  const _handleIncomingConnection = useCallback(async (sig, remotePeerId, isLan = false) => {
+  const _handleIncomingConnection = useCallback(async (sig, remotePeerId, isLan = false, initialSignal = null) => {
     if (activeConnectionRef.current) return;
     
     activityLog.log('info', 'Incoming connection', `From ${remotePeerId}`);
@@ -174,7 +187,23 @@ export function usePeer(identity) {
       engine.setTier(tier);
     });
 
+    conn.on('ice_timeout', () => {
+      _promoteToAsync(engine);
+    });
+
     conn.on('failed', () => {
+      if (_promoteToAsync(engine)) {
+        import('../chat/messages').then(({ globalMessageStore }) => {
+          globalMessageStore.addMessage({
+            id: crypto.randomUUID(),
+            text: 'Direct P2P failed — switched to async transfer mode. Chat continues via relay.',
+            type: 'system',
+            senderId: 'system',
+            timestamp: Date.now()
+          });
+        });
+        return; // keep the shell connection alive for relayed chat/transfers
+      }
       activityLog.log('error', 'Connection failed', 'P2P connection dropped');
       import('../chat/messages').then(({ globalMessageStore }) => {
         globalMessageStore.addMessage({
@@ -194,7 +223,7 @@ export function usePeer(identity) {
       }, 3000);
     });
 
-    conn.init();
+    conn.init(initialSignal);
 
     setActiveConnection(conn);
     setConnectedPeer(remotePeerId);
@@ -208,14 +237,14 @@ export function usePeer(identity) {
         setConnectedPeerName(msg.displayName);
       }
     });
-  }, []);
+  }, [_promoteToAsync]);
 
   // ── Join a room by code ──
   const _joinRoom = useCallback((code) => {
     const id = identityRef.current;
     if (!id) return;
 
-    const sig = new SignalingChannel(`room_${code}`, id.peerId);
+    const sig = createSignalingChannel(`room_${code}`, id.peerId);
     roomSignalingRef.current = sig;
 
     sig.on('peers', (peers) => {
@@ -247,7 +276,7 @@ export function usePeer(identity) {
           if (activeConnectionRef.current) setConnectedPeerName(newName);
         }
       } else if (payload.type === 'offer' && payload.from) {
-        _handleIncomingConnection(sig, payload.from);
+        _handleIncomingConnection(sig, payload.from, false, payload);
       }
     });
 
@@ -310,10 +339,28 @@ export function usePeer(identity) {
     });
 
     conn.on('ice_timeout', () => {
-      activityLog.log('error', 'WebRTC timeout', 'All ICE candidates failed — using relay chat');
+      // WebRTC exhausted all candidates — promote to Tier 4 (async
+      // store-and-forward) so files still flow over Supabase Storage.
+      if (_promoteToAsync(engine)) {
+        activityLog.log('info', 'Chat continues via relay', 'Encrypted through E2E session key');
+      } else {
+        activityLog.log('error', 'WebRTC timeout', 'All ICE candidates failed — using relay chat');
+      }
     });
 
     conn.on('failed', () => {
+      if (_promoteToAsync(engine)) {
+        import('../chat/messages').then(({ globalMessageStore }) => {
+          globalMessageStore.addMessage({
+            id: crypto.randomUUID(),
+            text: 'Direct P2P failed — switched to async transfer mode. Chat continues via relay.',
+            type: 'system',
+            senderId: 'system',
+            timestamp: Date.now()
+          });
+        });
+        return; // keep the shell connection alive for relayed chat/transfers
+      }
       activityLog.log('error', 'Connection failed', 'P2P connection dropped');
       import('../chat/messages').then(({ globalMessageStore }) => {
         globalMessageStore.addMessage({
@@ -349,7 +396,7 @@ export function usePeer(identity) {
     });
 
     return conn;
-  }, []);
+  }, [_promoteToAsync]);
 
   const acceptRequest = useCallback(() => {
     if (!incomingRequest) return;
@@ -393,7 +440,9 @@ export function usePeer(identity) {
         const stored = JSON.parse(storedStr);
         stored.displayName = newName;
         localStorage.setItem('blaze_identity', JSON.stringify(stored));
-      } catch (e) {}
+      } catch {
+        // Corrupted stored identity — leave it as-is
+      }
     }
 
     // Update presence so peer list shows the new name (primary sync)

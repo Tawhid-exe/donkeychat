@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: donkeychat-relay
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    # Optional env vars (set these in the Render dashboard, not here):
+    #   RELAY_TOKEN — shared secret required on /ws upgrades and transfer routes
+    #   ORIGIN      — restrict CORS to your frontend origin (e.g. https://donkeychat.pages.dev)
