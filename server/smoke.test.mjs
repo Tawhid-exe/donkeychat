@@ -1,6 +1,14 @@
 import WebSocket from 'ws';
 
-const BASE = 'http://localhost:8787';
+// Usage:
+//   node smoke.test.mjs                          → http://localhost:8787, no token
+//   SMOKE_BASE=https://x.onrender.com SMOKE_TOKEN=secret node smoke.test.mjs
+const BASE = process.env.SMOKE_BASE || 'http://localhost:8787';
+const TOKEN = process.env.SMOKE_TOKEN || '';
+const WS_BASE = BASE.replace(/^http/, 'ws');
+const authHeaders = (extra = {}) => (TOKEN ? { 'X-Relay-Token': TOKEN, ...extra } : extra);
+const wsUrl = `${WS_BASE}/ws${TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : ''}`;
+
 let failures = 0;
 function assert(cond, name) {
   if (cond) { console.log('PASS', name); } else { failures++; console.log('FAIL', name); }
@@ -22,36 +30,38 @@ function waitFor(ws, type, timeoutMs = 3000) {
   });
 }
 
-// ── REST chunk store ──
+// ── REST chunk store (unique id per run — safe against live instances) ──
+const RUN_ID = `smoke-${Date.now().toString(36)}`;
 const health = await fetch(`${BASE}/healthz`);
 assert(health.ok, 'healthz');
+console.log('      server:', JSON.stringify(await health.json()));
 
 const init = await fetch(`${BASE}/transfer/init`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ transferId: 'smoke-transfer-1', totalChunks: 2 })
+  headers: authHeaders({ 'Content-Type': 'application/json' }),
+  body: JSON.stringify({ transferId: RUN_ID, totalChunks: 2 })
 });
 assert(init.ok, 'transfer init');
 
 const payload = Buffer.from('smoke-chunk-plaintext-0123456789abcdef');
-const put = await fetch(`${BASE}/transfer/smoke-transfer-1/chunk/0`, { method: 'PUT', body: payload });
+const put = await fetch(`${BASE}/transfer/${RUN_ID}/chunk/0`, { method: 'PUT', headers: authHeaders(), body: payload });
 assert(put.ok, 'chunk PUT');
 
-const get = await fetch(`${BASE}/transfer/smoke-transfer-1/chunk/0`);
+const get = await fetch(`${BASE}/transfer/${RUN_ID}/chunk/0`, { headers: authHeaders() });
 const got = Buffer.from(await get.arrayBuffer());
 assert(get.ok && got.equals(payload), 'chunk GET roundtrip matches bytes');
 
-const missing = await fetch(`${BASE}/transfer/smoke-transfer-1/chunk/5`);
+const missing = await fetch(`${BASE}/transfer/${RUN_ID}/chunk/5`, { headers: authHeaders() });
 assert(missing.status === 404, 'missing chunk returns 404');
 
 // ── WebSocket signaling ──
-const ws1 = new WebSocket('ws://localhost:8787/ws');
+const ws1 = new WebSocket(wsUrl);
 await new Promise((r) => ws1.once('open', r));
 ws1.send(JSON.stringify({ type: 'join', room: 'smoke-room', peerId: 'peer-A', presence: { displayName: 'Alice', os: 'win' } }));
 const ready1 = await waitFor(ws1, 'ready');
 assert(!!ready1, 'A receives ready');
 
-const ws2 = new WebSocket('ws://localhost:8787/ws');
+const ws2 = new WebSocket(wsUrl);
 await new Promise((r) => ws2.once('open', r));
 const peersPromise1 = waitFor(ws1, 'peers');
 ws2.send(JSON.stringify({ type: 'join', room: 'smoke-room', peerId: 'peer-B', presence: { displayName: 'Bob', os: 'linux' } }));
@@ -88,9 +98,9 @@ ws1.close();
 ws2.close();
 
 // Cleanup endpoint
-const del = await fetch(`${BASE}/transfer/smoke-transfer-1`, { method: 'DELETE' });
+const del = await fetch(`${BASE}/transfer/${RUN_ID}`, { method: 'DELETE', headers: authHeaders() });
 assert(del.ok, 'DELETE transfer cleanup');
-const gone = await fetch(`${BASE}/transfer/smoke-transfer-1/chunk/0`);
+const gone = await fetch(`${BASE}/transfer/${RUN_ID}/chunk/0`, { headers: authHeaders() });
 assert(gone.status === 404, 'chunks gone after cleanup');
 
 console.log(failures === 0 ? '\nALL SMOKE TESTS PASSED' : `\n${failures} FAILURES`);
