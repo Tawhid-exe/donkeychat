@@ -11,6 +11,7 @@ import { getSupabaseClient } from '../core/signaling';
 
 const HTTP_RELAY_URL = import.meta.env.VITE_RELAY_URL || '';
 const WS_RELAY_URL = import.meta.env.VITE_RELAY_WS_URL || '';
+const RELAY_TOKEN = import.meta.env.VITE_RELAY_TOKEN || '';
 
 function usable(url) {
   return url && !url.includes('placeholder') ? url : '';
@@ -23,6 +24,11 @@ function httpBaseFromWsUrl(wsUrl) {
   } catch {
     return '';
   }
+}
+
+// Matches the server's RELAY_TOKEN check (X-Relay-Token header)
+function authHeaders(extra = {}) {
+  return RELAY_TOKEN ? { 'X-Relay-Token': RELAY_TOKEN, ...extra } : extra;
 }
 
 export function resolveChunkStore(intent = 'async') {
@@ -44,7 +50,7 @@ export function initChunkTransfer(transferId, meta, intent = 'async') {
   if (store.mode !== 'http') return Promise.resolve();
   return fetch(`${store.base}/transfer/init`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(meta)
   }).then((resp) => {
     if (!resp.ok) throw new Error(`Chunk store init failed: ${resp.status}`);
@@ -70,6 +76,7 @@ export async function uploadChunkToStorage(transferId, seq, encryptedChunk, inte
   if (store.mode === 'http') {
     const resp = await fetch(`${store.base}/transfer/${transferId}/chunk/${seq}`, {
       method: 'PUT',
+      headers: authHeaders(),
       body: encryptedChunk
     });
     if (!resp.ok) throw new Error(`Chunk store upload failed: ${resp.status}`);
@@ -92,7 +99,9 @@ export async function downloadChunkFromStorage(transferId, seq, intent = 'async'
   }
 
   if (store.mode === 'http') {
-    const resp = await fetch(`${store.base}/transfer/${transferId}/chunk/${seq}`);
+    const resp = await fetch(`${store.base}/transfer/${transferId}/chunk/${seq}`, {
+      headers: authHeaders()
+    });
     if (!resp.ok) {
       const err = new Error(`Chunk not available (${resp.status})`);
       err.status = resp.status;
@@ -118,7 +127,10 @@ export async function cleanupStorage(transferId, totalChunks, intent = 'async') 
 
   if (store.mode === 'http') {
     try {
-      await fetch(`${store.base}/transfer/${transferId}`, { method: 'DELETE' });
+      await fetch(`${store.base}/transfer/${transferId}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
     } catch {
       // Server TTL sweep will collect it — best effort only
     }
