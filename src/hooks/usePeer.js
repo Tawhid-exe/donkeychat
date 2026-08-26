@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createSignalingChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isTransportConfigured } from '../core';
+import { SignalingChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
 import { TransferEngine, TIER } from '../transfer/engine';
 import { activityLog } from '../utils/activityLog';
 
@@ -45,8 +45,8 @@ export function usePeer(identity) {
 
     activityLog.log('info', 'Identity ready', `${identity.displayName} (${identity.os})`);
 
-    if (!isTransportConfigured()) {
-      activityLog.log('warn', 'No backend', 'Peer discovery disabled — configure Supabase or VITE_RELAY_WS_URL');
+    if (!isSupabaseConfigured()) {
+      activityLog.log('warn', 'No Supabase', 'Peer discovery disabled — configure .env.local');
       return;
     }
 
@@ -62,7 +62,7 @@ export function usePeer(identity) {
       }
 
       // Join network-specific lobby for presence / online count
-      const lobbySig = createSignalingChannel(networkId, identity.peerId);
+      const lobbySig = new SignalingChannel(networkId, identity.peerId);
       lobbySignalingRef.current = lobbySig;
 
       // Presence sync — handles peer list AND real-time name changes automatically
@@ -151,7 +151,7 @@ export function usePeer(identity) {
 
   // ── Tier 4 promotion: WebRTC dead, but a chunk store is reachable ──
   const _promoteToAsync = useCallback((engine) => {
-    if (!engine || !isTransportConfigured()) return false;
+    if (!engine || !isSupabaseConfigured()) return false;
     if (engine.currentTier === TIER.ASYNC) return true;
     engine.setTier(TIER.ASYNC);
     setConnectionTier(TIER.ASYNC);
@@ -244,7 +244,7 @@ export function usePeer(identity) {
     const id = identityRef.current;
     if (!id) return;
 
-    const sig = createSignalingChannel(`room_${code}`, id.peerId);
+    const sig = new SignalingChannel(`room_${code}`, id.peerId);
     roomSignalingRef.current = sig;
 
     sig.on('peers', (peers) => {

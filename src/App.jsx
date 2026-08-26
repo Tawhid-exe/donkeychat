@@ -6,7 +6,7 @@ import { globalMessageStore, createMessage, createFileMessage } from './chat/mes
 import { FileTransfer } from './components/FileTransfer';
 import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { RoomCodePanel } from './components/RoomCodePanel';
-import { getTransportStatus } from './core';
+import { isSupabaseConfigured } from './core';
 
 function App() {
   const identity = useIdentity();
@@ -242,7 +242,7 @@ function App() {
     4: { label: 'Async', color: '#ef4444', dot: 'bg-red-500' },
   };
   const tierInfo = TIER_DISPLAY[connectionTier] || { label: 'Unknown', color: '#a1a1aa', dot: 'bg-[#a1a1aa]' };
-  const transport = getTransportStatus();
+  const transport = isSupabaseConfigured() ? 'supabase' : 'none';
   const peerName = connectedPeerName;
 
   // ════════════════════════════════════════════════════
