@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SignalingChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isSupabaseConfigured } from '../core';
+import { WebSocketChannel, BlazeConnection, getRoomCodeFromUrl, getPeerFromUrl, generateRoomCode, isRelayConfigured, isSupabaseConfigured } from '../core';
 import { TransferEngine, TIER } from '../transfer/engine';
 import { activityLog } from '../utils/activityLog';
 
@@ -49,16 +49,15 @@ export function usePeer(identity) {
     }
   }, []);
 
-  // ── Discovery: join global lobby once ──
   useEffect(() => {
     if (!identity?.peerId || initedRef.current) return;
     initedRef.current = true;
 
     activityLog.log('info', 'Identity ready', `${identity.displayName} (${identity.os})`);
 
-    if (!isSupabaseConfigured()) {
+    if (!isRelayConfigured()) {
       setSignalingStatus('not_configured');
-      activityLog.log('warn', 'No Supabase', 'Peer discovery disabled — configure .env.local');
+      activityLog.log('warn', 'No relay server', 'Peer discovery disabled — configure VITE_RELAY_WS_URL in .env.local');
       return;
     }
 
@@ -69,12 +68,12 @@ export function usePeer(identity) {
       try {
         const { getDiscoveryRoomId } = await import('../core/discovery');
         networkId = await getDiscoveryRoomId();
-        console.log('Joined discovery room:', networkId.slice(0, 20) + '...');
+        activityLog.log('info', 'Discovery room', networkId.slice(0, 25) + '...');
       } catch (e) {
         console.warn('Discovery room ID failed, using fallback:', e);
       }
 
-      const lobbySig = new SignalingChannel(networkId, identity.peerId);
+      const lobbySig = new WebSocketChannel(networkId, identity.peerId);
       lobbySignalingRef.current = lobbySig;
 
       lobbySig.on('ready', () => setSignalingStatus('connected'));
@@ -159,7 +158,9 @@ export function usePeer(identity) {
   }, [identity?.peerId]);
 
   const _promoteToAsync = useCallback((engine) => {
-    if (!engine || !isSupabaseConfigured()) return false;
+    if (!engine) return false;
+    const hasAsyncBackend = isRelayConfigured() || isSupabaseConfigured();
+    if (!hasAsyncBackend) return false;
     if (engine.currentTier === TIER.ASYNC) return true;
     engine.setTier(TIER.ASYNC);
     setConnectionTier(TIER.ASYNC);
@@ -251,7 +252,7 @@ export function usePeer(identity) {
     const id = identityRef.current;
     if (!id) return;
 
-    const sig = new SignalingChannel(`room_${code}`, id.peerId);
+    const sig = new WebSocketChannel(`room_${code}`, id.peerId);
     roomSignalingRef.current = sig;
 
     sig.on('ready', () => activityLog.log('success', 'Room signaling connected', `Room: ${code}`));

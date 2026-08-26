@@ -324,13 +324,13 @@ function App() {
               {signalingStatus === 'error' && (
                 <div className="mt-3 flex items-center justify-center gap-2 text-xs text-red-400">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  Signaling unreachable — check Supabase
+                  Signaling unreachable — check relay server
                 </div>
               )}
               {signalingStatus === 'not_configured' && (
                 <div className="mt-3 flex items-center justify-center gap-2 text-xs text-red-400">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  Supabase not configured
+                  Relay not configured
                 </div>
               )}
             </div>
@@ -398,7 +398,7 @@ function App() {
 
               {/* Info box */}
               <div className="bg-[#ef4444]/5 border border-[#ef4444]/20 p-3.5 rounded-xl text-[12px] text-[#a1a1aa] leading-[1.7]">
-                <span className="text-[#ef4444] font-bold">How it works:</span> Chat uses relay. Files transfer <strong className="text-red-300">directly P2P via WebRTC</strong>. If WebRTC fails, files fall back through relay. Max file size: <strong className="text-red-300">4GB+ (WebRTC) / 100MB (relay)</strong>. Room codes expire in <strong>10 minutes</strong>.
+                <span className="text-[#ef4444] font-bold">How it works:</span> Signaling and chat use a relay server. Files transfer <strong className="text-red-300">directly P2P via WebRTC</strong>. If WebRTC fails, files fall back through relay. Max file size: <strong className="text-red-300">4GB+ (WebRTC) / 100MB (relay)</strong>. Room codes expire in <strong>10 minutes</strong>.
               </div>
             </div>
           </div>

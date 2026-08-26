@@ -13,9 +13,9 @@ function relayUrlWithToken() {
   return `${RELAY_WS_URL}${sep}token=${encodeURIComponent(RELAY_TOKEN)}`;
 }
 
-// Drop-in replacement for SignalingChannel backed by the self-hosted
-// mini relay server (see /server). Emits the same events with the same
-// payload shapes: 'signal', 'relay_chat', 'peers', 'ready'.
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 2000;
+
 export class WebSocketChannel {
   constructor(roomId, peerId) {
     this.roomId = roomId;
@@ -24,8 +24,10 @@ export class WebSocketChannel {
     this.handlers = {};
     this.presenceData = {};
     this.joined = false;
+    this.connected = false;
     this.closedByUser = false;
     this.reconnectAttempts = 0;
+    this._retryCount = 0;
     this.reconnectTimer = null;
     this.outbox = [];
   }
@@ -49,17 +51,19 @@ export class WebSocketChannel {
     }
   }
 
-  connect(presenceData = {}) {
+  async connect(presenceData = {}) {
     this.presenceData = presenceData;
+    this.closedByUser = false;
+    this._retryCount = 0;
 
     if (!isRelayConfigured()) {
       activityLog.log('error', 'Relay failed', 'VITE_RELAY_WS_URL not configured');
-      setTimeout(() => this._emit('ready'), 100);
-      return Promise.resolve(this);
+      setTimeout(() => this._emit('error', 'Relay not configured'), 100);
+      return this;
     }
 
     this._open();
-    return Promise.resolve(this);
+    return this;
   }
 
   _open() {
@@ -67,7 +71,7 @@ export class WebSocketChannel {
     try {
       ws = new WebSocket(relayUrlWithToken());
     } catch {
-      this._scheduleReconnect();
+      this._handleConnectFailure('WebSocket constructor failed');
       return;
     }
     this.ws = ws;
@@ -91,9 +95,11 @@ export class WebSocketChannel {
       switch (msg.type) {
         case 'ready':
           this.joined = true;
+          this.connected = true;
           this.reconnectAttempts = 0;
+          this._retryCount = 0;
           this._flushOutbox();
-          activityLog.log('success', 'Relay joined', `Room: ${this.roomId.slice(0, 20)}...`);
+          activityLog.log('success', 'Room joined', `Room: ${this.roomId.slice(0, 20)}...`);
           this._emit('ready');
           break;
         case 'peers':
@@ -112,10 +118,28 @@ export class WebSocketChannel {
 
     ws.onclose = () => {
       this.joined = false;
-      if (!this.closedByUser) this._scheduleReconnect();
+      this.connected = false;
+      if (!this.closedByUser) {
+        this._handleConnectFailure('WebSocket closed');
+      }
     };
 
     ws.onerror = () => {};
+  }
+
+  _handleConnectFailure(reason) {
+    if (this.closedByUser) return;
+    if (this._retryCount < MAX_RETRIES) {
+      this._retryCount++;
+      const delay = RETRY_BASE_MS * Math.pow(2, this._retryCount - 1);
+      activityLog.log('warn', 'Signaling reconnecting', `Attempt ${this._retryCount}/${MAX_RETRIES} in ${delay}ms`);
+      this._emit('reconnecting', { attempt: this._retryCount, maxAttempts: MAX_RETRIES });
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => this._open(), delay);
+    } else {
+      activityLog.log('error', 'Signaling unreachable', `${reason} — relay server may be sleeping`);
+      this._emit('error', reason);
+    }
   }
 
   _scheduleReconnect() {
@@ -130,7 +154,6 @@ export class WebSocketChannel {
       this.ws.send(JSON.stringify(frame));
       return true;
     }
-    // Queue until the socket is open and joined again
     if (!this.closedByUser && frame.type !== 'join' && frame.type !== 'presence_update') {
       this.outbox.push(frame);
       if (this.outbox.length > 200) this.outbox.shift();
@@ -170,6 +193,7 @@ export class WebSocketChannel {
   async disconnect() {
     this.closedByUser = true;
     clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     if (this.ws) {
       try {
         this.ws.close();
@@ -178,5 +202,7 @@ export class WebSocketChannel {
       }
       this.ws = null;
     }
+    this.joined = false;
+    this.connected = false;
   }
 }

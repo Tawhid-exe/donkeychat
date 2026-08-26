@@ -126,8 +126,9 @@ wss.on('connection', (ws) => {
         type: msg.type === 'chat' ? 'relay_chat' : 'signal',
         payload: msg.payload
       });
-      if (msg.to) {
-        const target = roomState.get(msg.to);
+      const targetId = msg.to || msg.payload?.to;
+      if (targetId) {
+        const target = roomState.get(targetId);
         if (target && target.ws.readyState === target.ws.OPEN) {
           target.ws.send(frame);
         }
