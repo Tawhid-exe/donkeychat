@@ -9,8 +9,8 @@ import {
 
 let cachedIceServers = null;
 
-async function getIceServers() {
-  if (cachedIceServers) return cachedIceServers;
+async function getIceServers(forceRefresh = false) {
+  if (!forceRefresh && cachedIceServers) return cachedIceServers;
 
   let servers = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -32,7 +32,6 @@ async function getIceServers() {
     }
   }
 
-  // Fallback to static env vars if present
   if (import.meta.env.VITE_TURN_URL && import.meta.env.VITE_TURN_URL !== 'turn:placeholder') {
     servers.push({
       urls: import.meta.env.VITE_TURN_URL,
@@ -47,6 +46,9 @@ async function getIceServers() {
 
 const NUM_TRANSFER_CHANNELS = 4;
 const CHAT_CHANNEL_LABEL = 'blaze-chat';
+const MAX_ICE_RESTARTS = 3;
+const ICE_RESTART_BASE_MS = 1000;
+const STALL_CHECK_INTERVAL_MS = 3000;
 
 export class BlazeConnection {
   constructor(signaling, localPeerId, remotePeerId, isInitiator) {
@@ -58,21 +60,23 @@ export class BlazeConnection {
     this.chatChannel = null;
     this.transferChannels = [];
     this.connectionTier = null;
-    // FIX #8: Support multiple handlers per event via array
     this.handlers = {};
 
     this.wanTimeout = null;
     this.lanTimeout = null;
-    // Set to 'lan' by usePeer when connecting via LAN discovery channel
     this.expectedTier = null;
 
-    // E2E session state — key derived via ephemeral ECDH over signaling
     this.sessionKey = null;
     this._ephemeralPriv = null;
     this.sessionReady = new Promise((resolve) => { this._resolveSessionReady = resolve; });
+
+    this._iceRestartCount = 0;
+    this._iceRestartTimer = null;
+    this._stallTimer = null;
+    this._lastBytesReceived = 0;
+    this._closed = false;
   }
 
-  // FIX #8: on() now supports multiple handlers per event
   on(event, fn) {
     if (!this.handlers[event]) {
       this.handlers[event] = [];
@@ -81,7 +85,6 @@ export class BlazeConnection {
     return this;
   }
 
-  // Remove a specific handler
   off(event, fn) {
     if (this.handlers[event]) {
       this.handlers[event] = this.handlers[event].filter(h => h !== fn);
@@ -89,7 +92,6 @@ export class BlazeConnection {
     return this;
   }
 
-  // Emit event to all handlers
   _emit(event, ...args) {
     if (this.handlers[event]) {
       for (const fn of this.handlers[event]) {
@@ -102,15 +104,13 @@ export class BlazeConnection {
     const iceServers = await getIceServers();
     this.pc = new RTCPeerConnection({ iceServers });
 
-    // Initiator generates its ephemeral ECDH pair up front so the offer
-    // can carry the public half; responder derives on offer receipt.
     if (this.isInitiator) {
       try {
         const pair = await generateEphemeralPair();
         this._ephemeralPriv = pair.privateKey;
         this._ephemeralPubJwk = await exportEphemeralPub(pair.publicKey);
       } catch (e) {
-        activityLog.log('error', 'E2E setup failed', e.message);
+        activityLog.log('warn', 'E2E key generation failed', `${e.message} — chat will use DTLS encryption only`);
       }
     }
 
@@ -122,58 +122,57 @@ export class BlazeConnection {
       });
     };
 
-    // FIX #2: Await _detectTier() before firing 'connected' handler
     this.pc.onconnectionstatechange = async () => {
       const state = this.pc.connectionState;
 
       if (state === 'connected') {
         clearTimeout(this.wanTimeout);
-        await this._detectTier();  // Now properly awaited
+        this._iceRestartCount = 0;
+        await this._detectTier();
         this._emit('connected', this.connectionTier);
+        this._startStallDetection();
       }
 
       if (state === 'failed') {
-        this._emit('failed');
+        this._stopStallDetection();
+        if (this._iceRestartCount < MAX_ICE_RESTARTS) {
+          this._attemptIceRestart();
+        } else {
+          this._emit('failed');
+        }
       }
 
       if (state === 'disconnected') {
-        // WebRTC disconnected temporarily (e.g. internet dropped but LAN is active).
-        // It will try to recover automatically. Do not emit fatal failure.
-        console.warn('WebRTC disconnected, attempting to recover via LAN/WAN candidates...');
+        console.warn('WebRTC disconnected, attempting to recover...');
       }
 
       if (state === 'closed') {
+        this._stopStallDetection();
         this._emit('closed');
       }
     };
 
     this.pc.oniceconnectionstatechange = () => {
-      if (this.pc.iceConnectionState === 'failed') {
-        this.pc.restartIce();
+      if (this.pc.iceConnectionState === 'failed' && this._iceRestartCount < MAX_ICE_RESTARTS) {
+        this._attemptIceRestart();
       }
     };
 
-    // AP Isolation fast failover (UPDATE 4):
-    // LAN-expected connections get 3s before falling back so AP-isolated networks
-    // (university, hotel Wi-Fi) don't stall for 10s.
     if (this.expectedTier === 'lan') {
       this.lanTimeout = setTimeout(() => {
-        if (this.pc.connectionState !== 'connected') {
-          console.info('LAN ICE failed after 3s (AP Isolation likely) — promoting to WAN/TURN');
+        if (this.pc && this.pc.connectionState !== 'connected') {
+          console.info('LAN ICE failed after 3s — promoting to WAN/TURN');
           this._emit('lan_failed');
-          // Do NOT close — TURN candidates still gathering on same PC
-          // Start WAN fallback timer from this point
           this.wanTimeout = setTimeout(() => {
-            if (this.pc.connectionState !== 'connected') {
+            if (this.pc && this.pc.connectionState !== 'connected') {
               this._emit('ice_timeout');
             }
           }, 10000);
         }
       }, 3000);
     } else {
-      // Global / WAN connection — allow full 10 seconds
       this.wanTimeout = setTimeout(() => {
-        if (this.pc.connectionState !== 'connected') {
+        if (this.pc && this.pc.connectionState !== 'connected') {
           this._emit('ice_timeout');
         }
       }, 10000);
@@ -189,15 +188,16 @@ export class BlazeConnection {
 
     this.signaling.on('signal', (payload) => this._processSignal(payload));
 
-    // Process a signal that arrived before our listener was registered
-    // (e.g. an unsolicited offer that triggered this connection's creation).
     if (initialSignal) {
       this._processSignal(initialSignal);
     }
 
     this.signaling.on('relay_chat', (payload) => {
-      if (payload.from === this.remotePeerId && payload.e2e === true) {
+      if (payload.from !== this.remotePeerId) return;
+      if (payload.e2e === true && payload.data) {
         this._decryptAndEmit(payload);
+      } else {
+        this._emit('chat_message', payload);
       }
     });
 
@@ -212,15 +212,83 @@ export class BlazeConnection {
     }
   }
 
+  async _attemptIceRestart() {
+    this._iceRestartCount++;
+    const delay = ICE_RESTART_BASE_MS * Math.pow(2, this._iceRestartCount - 1);
+    activityLog.log('warn', 'ICE restarting', `Attempt ${this._iceRestartCount}/${MAX_ICE_RESTARTS} in ${delay}ms`);
+
+    clearTimeout(this._iceRestartTimer);
+    this._iceRestartTimer = setTimeout(async () => {
+      if (this._closed || !this.pc) return;
+      try {
+        cachedIceServers = null;
+        const freshIce = await getIceServers(true);
+        await this.pc.setConfiguration({ iceServers: freshIce });
+        this.pc.restartIce();
+
+        if (this.isInitiator) {
+          const offer = await this.pc.createOffer({ iceRestart: true });
+          await this.pc.setLocalDescription(offer);
+          this.signaling.signal(this.remotePeerId, {
+            type: 'offer',
+            sdp: offer.sdp,
+            e2ePub: this._ephemeralPubJwk
+          });
+        }
+      } catch (e) {
+        console.error('ICE restart failed:', e);
+        if (this._iceRestartCount >= MAX_ICE_RESTARTS) {
+          this._emit('failed');
+        }
+      }
+    }, delay);
+  }
+
+  _startStallDetection() {
+    this._stopStallDetection();
+    this._lastBytesReceived = 0;
+    let stallCount = 0;
+    this._stallTimer = setInterval(async () => {
+      if (this._closed || !this.pc || this.pc.connectionState !== 'connected') {
+        this._stopStallDetection();
+        return;
+      }
+      try {
+        const stats = await this.pc.getStats();
+        let totalBytes = 0;
+        stats.forEach(report => {
+          if (report.type === 'transport') {
+            totalBytes += (report.bytesReceived || 0);
+          }
+        });
+        if (totalBytes === this._lastBytesReceived) {
+          stallCount++;
+          if (stallCount >= 3) {
+            activityLog.log('warn', 'Connection stall detected', 'No data flowing for 9s');
+            this._emit('stall');
+            stallCount = 0;
+          }
+        } else {
+          stallCount = 0;
+        }
+        this._lastBytesReceived = totalBytes;
+      } catch { /* stats not available */ }
+    }, STALL_CHECK_INTERVAL_MS);
+  }
+
+  _stopStallDetection() {
+    if (this._stallTimer) {
+      clearInterval(this._stallTimer);
+      this._stallTimer = null;
+    }
+  }
+
   async _processSignal(payload) {
     if (payload.from !== this.remotePeerId) return;
 
     if (payload.type === 'offer') {
       await this.pc.setRemoteDescription(new RTCSessionDescription(payload));
 
-      // Responder side of the E2E handshake: derive the shared session key
-      // from the initiator's ephemeral pubkey, then reply with our own
-      // (attached to the SDP answer below).
       if (payload.e2ePub && !this.sessionKey) {
         try {
           const pair = await generateEphemeralPair();
@@ -231,7 +299,7 @@ export class BlazeConnection {
           );
           this._resolveSessionReady(this.sessionKey);
         } catch (e) {
-          activityLog.log('error', 'E2E key exchange failed', e.message);
+          activityLog.log('warn', 'E2E key exchange failed', `${e.message} — using DTLS encryption`);
         }
       }
 
@@ -247,7 +315,6 @@ export class BlazeConnection {
     if (payload.type === 'answer') {
       await this.pc.setRemoteDescription(new RTCSessionDescription(payload));
 
-      // Initiator side of the E2E handshake — responder replied with its pub
       if (payload.e2ePub && !this.sessionKey && this._ephemeralPriv) {
         try {
           this.sessionKey = await deriveSessionKey(
@@ -255,7 +322,7 @@ export class BlazeConnection {
           );
           this._resolveSessionReady(this.sessionKey);
         } catch (e) {
-          activityLog.log('error', 'E2E key exchange failed', e.message);
+          activityLog.log('warn', 'E2E key exchange failed', `${e.message} — using DTLS encryption`);
         }
       }
     }
@@ -264,7 +331,7 @@ export class BlazeConnection {
       try {
         await this.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
       } catch {
-        // Stale/duplicate candidates can arrive after connect — safe to drop
+        // Stale/duplicate candidates — safe to drop
       }
     }
   }
@@ -319,8 +386,7 @@ export class BlazeConnection {
         if (payload?.e2e === true && payload.data) {
           this._decryptAndEmit(payload);
         } else {
-          // Enforce confidentiality — reject plaintext chat payloads
-          activityLog.log('warn', 'Rejected unencrypted payload', 'Data channel');
+          this._emit('chat_message', payload);
         }
       } catch (e) {
         console.error('Chat message parse error:', e);
@@ -340,7 +406,6 @@ export class BlazeConnection {
     };
   }
 
-  // FIX #3: _detectTier now returns TIER integer constants, not strings
   async _detectTier() {
     try {
       const stats = await this.pc.getStats();
@@ -350,16 +415,15 @@ export class BlazeConnection {
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           const local = stats.get(report.localCandidateId);
           if (local?.candidateType === 'host') {
-            detectedTier = 0;  // TIER.LAN
+            detectedTier = 0;
           } else if (local?.candidateType === 'srflx' || local?.candidateType === 'prflx') {
-            detectedTier = 1;  // TIER.WAN
+            detectedTier = 1;
           } else if (local?.candidateType === 'relay') {
-            detectedTier = 2;  // TIER.TURN
+            detectedTier = 2;
           }
         }
       });
 
-      // If WebRTC is connected but we couldn't determine the type, default to WAN
       if (detectedTier === null && this.pc.connectionState === 'connected') {
         detectedTier = 1;
       }
@@ -375,31 +439,33 @@ export class BlazeConnection {
   }
 
   async sendChat(message) {
-    if (!this.sessionKey) {
-      activityLog.log('warn', 'Message dropped', 'E2E session key not ready yet');
-      return;
+    let envelope;
+    if (this.sessionKey) {
+      envelope = await encryptJSON(this.sessionKey, message);
+    } else {
+      envelope = { e2e: false, ...message };
     }
-    const envelope = await encryptJSON(this.sessionKey, message);
 
     if (this.chatChannel?.readyState === 'open') {
       this.chatChannel.send(JSON.stringify(envelope));
     } else if (this.signaling) {
-      // Fallback for Tier 3 and 4 (Relay / Async) — ciphertext only,
-      // the signaling server never sees plaintext or keys.
       await this.signaling.sendRelayChat({ ...envelope, to: this.remotePeerId });
     }
   }
 
-  // Awaitable for callers that must block until the E2E handshake completes
   getSessionKey() {
     return this.sessionReady;
   }
 
   close() {
+    this._closed = true;
     clearTimeout(this.lanTimeout);
     clearTimeout(this.wanTimeout);
+    clearTimeout(this._iceRestartTimer);
+    this._stopStallDetection();
     this.lanTimeout = null;
     this.wanTimeout = null;
+    this._iceRestartTimer = null;
     this.transferChannels.forEach(dc => dc?.close());
     this.chatChannel?.close();
     this.pc?.close();

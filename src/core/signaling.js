@@ -20,12 +20,20 @@ export function getSupabaseClient() {
   return supabase;
 }
 
+const SUBSCRIBE_TIMEOUT_MS = 10000;
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 2000;
+
 export class SignalingChannel {
   constructor(roomId, peerId) {
     this.roomId = roomId;
     this.peerId = peerId;
     this.channel = null;
     this.handlers = {};
+    this.connected = false;
+    this._retryCount = 0;
+    this._subscribeTimer = null;
+    this._closedByUser = false;
   }
 
   on(event, handler) {
@@ -49,12 +57,26 @@ export class SignalingChannel {
 
   async connect(presenceData = {}) {
     if (!supabase) {
-      activityLog.log('error', 'Signaling failed', 'Supabase not configured');
-      setTimeout(() => this._emit('ready'), 100);
+      activityLog.log('error', 'Signaling failed', 'Supabase not configured — add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local');
+      setTimeout(() => this._emit('error', 'Supabase not configured'), 100);
       return this;
     }
 
+    this._closedByUser = false;
+    this._retryCount = 0;
+    this._presenceData = presenceData;
+    await this._attemptSubscribe();
+    return this;
+  }
+
+  async _attemptSubscribe() {
+    if (this._closedByUser) return;
+
     try {
+      if (this.channel) {
+        try { await supabase.removeChannel(this.channel); } catch { /* ignore */ }
+      }
+
       this.channel = supabase.channel(`blaze:${this.roomId}`, {
         config: {
           presence: { key: this.peerId },
@@ -81,21 +103,45 @@ export class SignalingChannel {
           this._broadcastPeers();
         });
 
+      this._subscribeTimer = setTimeout(() => {
+        if (!this.connected && !this._closedByUser) {
+          this._subscribeTimer = null;
+          this._handleSubscribeFailure('Supabase Realtime timed out (10s) — server may be unreachable');
+        }
+      }, SUBSCRIBE_TIMEOUT_MS);
+
       await this.channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await this.channel.track(presenceData);
+          clearTimeout(this._subscribeTimer);
+          this._subscribeTimer = null;
+          this.connected = true;
+          this._retryCount = 0;
+          await this.channel.track(this._presenceData);
           activityLog.log('success', 'Room joined', `Room: ${this.roomId.slice(0, 20)}...`);
-          // Force an immediate peers sync — catches peers already online before we joined
           this._broadcastPeers();
           this._emit('ready');
         }
       });
     } catch (err) {
-      activityLog.log('error', 'Signaling connect failed', err.message);
-      this._emit('ready');
+      clearTimeout(this._subscribeTimer);
+      this._subscribeTimer = null;
+      this._handleSubscribeFailure(err.message);
     }
+  }
 
-    return this;
+  _handleSubscribeFailure(reason) {
+    if (this._closedByUser) return;
+
+    if (this._retryCount < MAX_RETRIES) {
+      this._retryCount++;
+      const delay = RETRY_BASE_MS * Math.pow(2, this._retryCount - 1);
+      activityLog.log('warn', 'Signaling reconnecting', `Attempt ${this._retryCount}/${MAX_RETRIES} in ${delay}ms — ${reason}`);
+      this._emit('reconnecting', { attempt: this._retryCount, maxAttempts: MAX_RETRIES });
+      setTimeout(() => this._attemptSubscribe(), delay);
+    } else {
+      activityLog.log('error', 'Signaling unreachable', `${reason} — falling back to relay`);
+      this._emit('error', reason);
+    }
   }
 
   _broadcastPeers() {
@@ -108,7 +154,7 @@ export class SignalingChannel {
   }
 
   async send(event, payload) {
-    if (!this.channel) return;
+    if (!this.channel || !this.connected) return;
     await this.channel.send({
       type: 'broadcast',
       event,
@@ -117,9 +163,9 @@ export class SignalingChannel {
   }
 
   async updatePresence(presenceData) {
-    if (!this.channel) return;
+    if (!this.channel || !this.connected) return;
     try {
-      this.presenceData = presenceData;
+      this._presenceData = presenceData;
       await this.channel.track(presenceData);
     } catch (e) {
       console.warn('Failed to update presence', e);
@@ -130,13 +176,14 @@ export class SignalingChannel {
     await this.send('signal', { ...data, from: this.peerId, to });
   }
 
-  // Relay a chat message through the signaling backend's broadcast
-  // (fallback when WebRTC unavailable)
   async sendRelayChat(msg) {
     await this.send('chat', { ...msg, from: this.peerId });
   }
 
   async disconnect() {
+    this._closedByUser = true;
+    clearTimeout(this._subscribeTimer);
+    this._subscribeTimer = null;
     if (this.channel && supabase) {
       try {
         await this.channel.untrack();
@@ -150,5 +197,6 @@ export class SignalingChannel {
       }
       this.channel = null;
     }
+    this.connected = false;
   }
 }

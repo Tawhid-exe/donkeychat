@@ -6,7 +6,7 @@ import { globalMessageStore, createMessage, createFileMessage } from './chat/mes
 import { FileTransfer } from './components/FileTransfer';
 import { ActivityLogPanel } from './components/ActivityLogPanel';
 import { RoomCodePanel } from './components/RoomCodePanel';
-import { isSupabaseConfigured } from './core';
+
 
 function App() {
   const identity = useIdentity();
@@ -25,7 +25,8 @@ function App() {
   const {
     lanPeers, connectToPeer, activeConnection, connectedPeer, connectedPeerName,
     connectionTier, transferEngine, roomCode, createRoom, joinRoom,
-    getSignaling, incomingRequest, pendingRequest, acceptRequest, rejectRequest, updateNickname, endChat
+    incomingRequest, pendingRequest, acceptRequest, rejectRequest, updateNickname, endChat,
+    signalingStatus, sendMessage
   } = usePeer(stableIdentity);
 
   const { activeTransfers, sendFile, handleIncomingFile, acceptTransfer, declineTransfer, cancelTransfer } = useTransfer(transferEngine, activeConnection);
@@ -135,14 +136,12 @@ function App() {
     });
     seenMsgIds.current.add(msg.id); // Add own message to seen
 
-    // Try WebRTC data channel if open, else fallback to Relay internally
-    if (activeConnection) {
-      activeConnection.sendChat(msg);
-    }
+    // Use sendMessage from usePeer — queues if DataChannel not ready yet
+    sendMessage(msg);
 
     globalMessageStore.addMessage(msg);
     setInputText('');
-  }, [inputText, connectedPeer, activeConnection, stableIdentity, getSignaling, customName]);
+  }, [inputText, connectedPeer, stableIdentity, sendMessage]);
 
   // ── File handling ──
   const processFile = useCallback(async (file, isDocument = false) => {
@@ -242,7 +241,6 @@ function App() {
     4: { label: 'Async', color: '#ef4444', dot: 'bg-red-500' },
   };
   const tierInfo = TIER_DISPLAY[connectionTier] || { label: 'Unknown', color: '#a1a1aa', dot: 'bg-[#a1a1aa]' };
-  const transport = isSupabaseConfigured() ? 'supabase' : 'none';
   const peerName = connectedPeerName;
 
   // ════════════════════════════════════════════════════
@@ -305,10 +303,34 @@ function App() {
                 <span className="text-2xl">🫏</span> DonkeyChat
               </h1>
               <p className="text-[#a1a1aa] text-[13px] mt-1">Encrypted P2P network. Zero traces.</p>
-              {transport !== 'none' && (
-                <div className={`mt-3 flex items-center justify-center gap-2 text-xs ${transport === 'relay' ? 'text-amber-400' : 'text-emerald-400'}`}>
-                  <span className={`w-2 h-2 rounded-full ${transport === 'relay' ? 'bg-amber-500' : 'bg-emerald-500'} animate-pulse`}></span>
-                  {transport === 'supabase' ? 'Relay Server Online' : 'Backup Relay Online'}
+              {signalingStatus === 'connected' && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Signaling Online
+                </div>
+              )}
+              {signalingStatus === 'connecting' && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-amber-400">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  Connecting to server...
+                </div>
+              )}
+              {signalingStatus === 'reconnecting' && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-amber-400">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  Reconnecting...
+                </div>
+              )}
+              {signalingStatus === 'error' && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-red-400">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  Signaling unreachable — check Supabase
+                </div>
+              )}
+              {signalingStatus === 'not_configured' && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-red-400">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  Supabase not configured
                 </div>
               )}
             </div>
